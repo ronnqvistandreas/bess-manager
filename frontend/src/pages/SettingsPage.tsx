@@ -37,6 +37,7 @@ const EMPTY_BATTERY: BatteryForm = {
   maxChargeDischargePowerKw: 0,
   cycleCostPerKwh: 0,
   efficiencyCharge: 97, efficiencyDischarge: 97,
+  standbyLossKw: 0,
   temperatureDeratingEnabled: false, minActionProfit: 0,
 };
 const EMPTY_HOME: HomeForm = {
@@ -159,6 +160,7 @@ const SettingsPage: React.FC = () => {
         cycleCostPerKwh: bat_s.cycleCostPerKwh ?? 0,
         efficiencyCharge: bat_s.efficiencyCharge ?? 0.97,
         efficiencyDischarge: bat_s.efficiencyDischarge ?? 0.95,
+        standbyLossKw: bat_s.standbyLossKw ?? 0,
         temperatureDeratingEnabled: bat_s.temperatureDerating?.enabled ?? false,
         minActionProfit: bat_s.minActionProfitThreshold ?? 0,
       };
@@ -428,6 +430,7 @@ const SettingsPage: React.FC = () => {
           minActionProfitThreshold: batteryForm.minActionProfit,
           efficiencyCharge: batteryForm.efficiencyCharge,
           efficiencyDischarge: batteryForm.efficiencyDischarge,
+          standbyLossKw: batteryForm.standbyLossKw,
           temperatureDerating: {
             enabled: batteryForm.temperatureDeratingEnabled,
             weatherEntity: sensors.shared?.['weather_entity'] ?? '',

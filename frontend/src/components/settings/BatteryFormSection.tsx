@@ -10,6 +10,7 @@ export interface BatteryForm {
   cycleCostPerKwh: number;
   efficiencyCharge: number;
   efficiencyDischarge: number;
+  standbyLossKw: number;
   temperatureDeratingEnabled: boolean;
   minActionProfit: number;
 }
@@ -95,6 +96,14 @@ export function BatteryFormSection({
               {numField('Discharge Efficiency', form.efficiencyDischarge,
                 v => onChange({ ...form, efficiencyDischarge: v }), { unit: '%', min: 0, max: 100, step: 0.1 })}
             </div>
+            {numField('Standby Loss', form.standbyLossKw,
+              v => onChange({ ...form, standbyLossKw: v }),
+              { unit: 'kW', min: 0, step: 0.01 })}
+            <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
+              Fixed power drawn from stored energy while the pack is online above the reserve floor
+              (inverter/BMS overhead). Default 0 — set from your hold reading if the battery still
+              discharges at 0% discharge rate.
+            </p>
             {toggle('Enable temperature derating', form.temperatureDeratingEnabled,
               v => onChange({ ...form, temperatureDeratingEnabled: v }))}
             {form.temperatureDeratingEnabled && (

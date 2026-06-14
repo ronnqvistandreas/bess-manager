@@ -4,6 +4,12 @@ All notable changes to BESS Battery Manager will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`standbyLossKw` battery setting** — models fixed pack-side drain while the battery is online above the reserve floor (inverter/BMS overhead). Default `0` (no change for existing installs). Applied in the DP optimizer and recorded as parasitic battery discharge without inflating grid import.
+
 ## [9.4.0] - 2026-06-12
 
 ### Fixed

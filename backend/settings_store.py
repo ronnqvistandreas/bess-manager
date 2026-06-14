@@ -427,6 +427,7 @@ class SettingsStore:
             BATTERY_EFFICIENCY_CHARGE,
             BATTERY_EFFICIENCY_DISCHARGE,
             BATTERY_MIN_ACTION_PROFIT_THRESHOLD,
+            BATTERY_STANDBY_LOSS_KW,
         )
 
         changed = False
@@ -463,6 +464,7 @@ class SettingsStore:
                 ("charging_power_rate", BATTERY_DEFAULT_CHARGING_POWER_RATE),
                 ("efficiency_charge", BATTERY_EFFICIENCY_CHARGE),
                 ("efficiency_discharge", BATTERY_EFFICIENCY_DISCHARGE),
+                ("standby_loss_kw", BATTERY_STANDBY_LOSS_KW),
             ):
                 if key not in battery:
                     battery[key] = default
