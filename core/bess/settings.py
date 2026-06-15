@@ -73,6 +73,10 @@ DEFAULT_TEMPERATURE_DERATING_CURVE: list[tuple[float, float]] = [
 HOME_HOURLY_CONSUMPTION_KWH = 4.6
 MIN_CONSUMPTION = 0.1
 
+# Solar load-support override defaults
+SOLAR_PV_MIN_WATTS = 100.0  # Minimum live PV production to allow discharge override
+SOLAR_DISCHARGE_LOAD_MULTIPLIER = 2.0  # Load must exceed N x defaultHourly watts
+
 # Home electrical defaults
 HOUSE_MAX_FUSE_CURRENT_A = 25  # Maximum fuse current in amperes
 HOUSE_VOLTAGE_V = 230  # Line voltage
@@ -184,6 +188,8 @@ class HomeSettings:
     currency: str = DEFAULT_CURRENCY
     consumption_strategy: str = "sensor"
     power_monitoring_enabled: bool = False
+    solar_pv_min_watts: float = SOLAR_PV_MIN_WATTS
+    solar_discharge_load_multiplier: float = SOLAR_DISCHARGE_LOAD_MULTIPLIER
 
     def __post_init__(self):
         assert self.phase_count in (

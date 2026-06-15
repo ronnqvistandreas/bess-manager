@@ -9,6 +9,8 @@ export interface HomeForm {
   safetyMarginFactor: number;
   phaseCount: number;
   powerMonitoringEnabled: boolean;
+  solarPvMinWatts: number;
+  solarDischargeLoadMultiplier: number;
 }
 
 interface Props {
@@ -118,6 +120,26 @@ export function HomeFormSection({ form, onChange, sensors }: Props) {
             </p>
           </>
         )}
+      </SectionCard>
+
+      <SectionCard
+        title="Solar Load-Support Override"
+        description="Forces battery discharge to 100% when live solar production and a load spike are both detected, regardless of the optimizer's schedule."
+      >
+        <p className="text-xs text-gray-500 dark:text-gray-400 pb-2">
+          When PV production is at or above the minimum and total home load exceeds the multiplier
+          times the default hourly consumption, the battery will discharge to cover the load.
+          Discharge inhibit always takes priority over this override.
+          Requires the PV Power sensor to be configured in the <strong>Sensors</strong> tab.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {numField('Solar PV Minimum', form.solarPvMinWatts,
+            v => onChange({ ...form, solarPvMinWatts: v }),
+            { unit: 'W', min: 0, step: 10 })}
+          {numField('Load Multiplier', form.solarDischargeLoadMultiplier,
+            v => onChange({ ...form, solarDischargeLoadMultiplier: v }),
+            { min: 1, step: 0.1 })}
+        </div>
       </SectionCard>
     </div>
   );

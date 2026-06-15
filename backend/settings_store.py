@@ -364,6 +364,8 @@ class SettingsStore:
             HOUSE_VOLTAGE_V,
             MARKUP_RATE,
             SAFETY_MARGIN_FACTOR,
+            SOLAR_DISCHARGE_LOAD_MULTIPLIER,
+            SOLAR_PV_MIN_WATTS,
             TAX_REDUCTION,
             VAT_MULTIPLIER,
         )
@@ -387,6 +389,8 @@ class SettingsStore:
                 "safety_margin": SAFETY_MARGIN_FACTOR,
                 "phase_count": 1,
                 "power_monitoring_enabled": False,
+                "solar_pv_min_watts": SOLAR_PV_MIN_WATTS,
+                "solar_discharge_load_multiplier": SOLAR_DISCHARGE_LOAD_MULTIPLIER,
             },
             "electricity_price": {
                 "markup_rate": MARKUP_RATE,
@@ -428,6 +432,8 @@ class SettingsStore:
             BATTERY_EFFICIENCY_DISCHARGE,
             BATTERY_MIN_ACTION_PROFIT_THRESHOLD,
             BATTERY_STANDBY_LOSS_KW,
+            SOLAR_DISCHARGE_LOAD_MULTIPLIER,
+            SOLAR_PV_MIN_WATTS,
         )
 
         changed = False
@@ -493,6 +499,16 @@ class SettingsStore:
                     home["safety_margin"],
                 )
                 changed = True
+
+            # Add missing solar load-support fields with defaults
+            for key, default in (
+                ("solar_pv_min_watts", SOLAR_PV_MIN_WATTS),
+                ("solar_discharge_load_multiplier", SOLAR_DISCHARGE_LOAD_MULTIPLIER),
+            ):
+                if key not in home:
+                    home[key] = default
+                    logger.info("Schema migration: added home.%s = %s", key, default)
+                    changed = True
 
             if changed:
                 self.data["home"] = home

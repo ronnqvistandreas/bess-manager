@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 
 - **`standbyLossKw` battery setting** — models fixed pack-side drain while the battery is online above the reserve floor (inverter/BMS overhead). Default `0` (no change for existing installs). Applied in the DP optimizer and recorded as parasitic battery discharge without inflating grid import.
+- **Solar load-support override** — when live PV production is at or above `solarPvMinWatts` (default 100 W) and total home load exceeds `solarDischargeLoadMultiplier` times the predicted consumption for the current 15-minute slot, the battery discharge rate is forced to 100% regardless of the optimizer's schedule. Falls back to `defaultHourly` as the baseline until the first prediction fetch completes. Designed for EV-charging or high-load events where stored solar should be used instead of importing from the grid. Discharge inhibit always takes priority. Both thresholds are configurable in Settings → Home. Degrades silently if the PV sensor or phase current sensors are unavailable.
 
 ## [9.4.0] - 2026-06-12
 

@@ -2712,17 +2712,89 @@ class BatterySystemManager:
         except (AttributeError, ValueError, KeyError) as e:
             logger.error("Failed to adjust charging power: %s", str(e))
 
-    def apply_discharge_inhibit(self) -> None:
-        """React to discharge inhibit sensor changes within ~1 minute.
+    def _is_solar_load_support_active(self) -> bool:
+        """Return True when solar load-support override conditions are met.
 
-        Called every minute by the scheduler. Compares the current inhibit sensor
-        state against the last applied discharge rate and writes to the inverter
-        only when the state has actually changed, avoiding unnecessary Modbus writes.
+        Conditions (both must hold):
+        - Live PV production >= home_settings.solar_pv_min_watts
+        - Total home load > solar_discharge_load_multiplier x predicted load for
+          the current 15-min slot (falls back to default_hourly when predictions
+          are not yet available)
+
+        Load is read from local_load_power (actual home consumption) when
+        available, with phase currents as a fallback. Using local_load_power
+        avoids under-counting load when solar offsets grid import.
+
+        Returns False silently on any sensor read failure.
+        """
+        try:
+            pv_watts = self.controller.get_pv_power()
+        except Exception:
+            return False
+        if pv_watts is None or pv_watts < self.home_settings.solar_pv_min_watts:
+            return False
+
+        # Use current-slot prediction when available; fall back to default_hourly
+        if self._consumption_predictions is not None:
+            now = time_utils.now()
+            period = now.hour * 4 + now.minute // 15
+            predicted_kw = self._consumption_predictions[period] * 4  # kWh/15min → kW
+        else:
+            predicted_kw = self.home_settings.default_hourly  # kWh/h = kW
+
+        threshold_w = (
+            self.home_settings.solar_discharge_load_multiplier * predicted_kw * 1000.0
+        )
+
+        # Prefer local_load_power (actual home consumption) over phase currents.
+        # Phase currents from a grid meter under-count load when solar is active
+        # because they measure grid import, not total consumption.
+        total_load_w: float | None = None
+        try:
+            total_load_w = self.controller.get_local_load_power()
+        except Exception:
+            pass
+
+        if total_load_w is None:
+            try:
+                if self.home_settings.phase_count == 1:
+                    total_load_w = (
+                        self.controller.get_l1_current() * self.home_settings.voltage
+                    )
+                else:
+                    total_load_w = (
+                        self.controller.get_l1_current()
+                        + self.controller.get_l2_current()
+                        + self.controller.get_l3_current()
+                    ) * self.home_settings.voltage
+            except Exception:
+                return False
+
+        if total_load_w is None:
+            return False
+
+        return total_load_w > threshold_w
+
+    def apply_discharge_inhibit(self) -> None:
+        """React to discharge inhibit and solar load-support state within ~1 minute.
+
+        Called every minute by the scheduler. Priority chain:
+        1. Discharge inhibit active → 0%
+        2. Solar load-support conditions met → 100%
+        3. Otherwise → schedule's desired discharge rate
+
+        Writes to the inverter only when the target rate changes, avoiding
+        unnecessary Modbus writes.
         """
         if not self.is_configured:
             return
         inhibit_active = self.controller.get_discharge_inhibit_active()
-        target_rate = 0 if inhibit_active else self._desired_discharge_rate
+        solar_override = False
+        if inhibit_active:
+            target_rate = 0
+        else:
+            solar_override = self._is_solar_load_support_active()
+            target_rate = 100 if solar_override else self._desired_discharge_rate
 
         if target_rate == self._last_applied_discharge_rate:
             return
@@ -2732,9 +2804,15 @@ class BatterySystemManager:
                 "Discharge inhibit became active — suppressing discharge (was %d%%)",
                 self._last_applied_discharge_rate,
             )
+        elif solar_override:
+            logger.info(
+                "Solar load-support override active — forcing discharge to 100%% "
+                "(load spike + solar present, was %d%%)",
+                self._last_applied_discharge_rate,
+            )
         else:
             logger.info(
-                "Discharge inhibit released — restoring discharge rate to %d%%",
+                "Discharge inhibit/solar override cleared — restoring discharge rate to %d%%",
                 self._desired_discharge_rate,
             )
 

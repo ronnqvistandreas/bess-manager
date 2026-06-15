@@ -42,6 +42,7 @@ const SetupWizardPage: React.FC = () => {
     cycleCostPerKwh: 0.50,
     efficiencyCharge: 97,
     efficiencyDischarge: 97,
+    standbyLossKw: 0,
     temperatureDeratingEnabled: false,
     minActionProfit: 8.0,
   });
@@ -59,6 +60,8 @@ const SetupWizardPage: React.FC = () => {
     safetyMarginFactor: 1.0,
     phaseCount: 3,
     powerMonitoringEnabled: true,
+    solarPvMinWatts: 100,
+    solarDischargeLoadMultiplier: 2.0,
   });
 
   const [pricingForm, setPricingForm] = useState<PricingForm>({
