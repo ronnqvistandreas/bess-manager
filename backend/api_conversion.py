@@ -29,6 +29,7 @@ BATTERY_STORE_TO_API: dict[str, str] = {
     "max_charge_power_kw": "maxChargePowerKw",
     "max_discharge_power_kw": "maxDischargePowerKw",
     "min_action_profit_threshold": "minActionProfitThreshold",
+    "standby_loss_kw": "standbyLossKw",
 }
 
 HOME_STORE_TO_API: dict[str, str] = {
