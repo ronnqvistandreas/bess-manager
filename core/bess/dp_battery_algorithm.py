@@ -117,6 +117,7 @@ class StrategicIntent(Enum):
     LOAD_SUPPORT = "LOAD_SUPPORT"  # Discharging to meet home load
     EXPORT_ARBITRAGE = "EXPORT_ARBITRAGE"  # Discharging to grid for profit
     IDLE = "IDLE"  # No significant action (includes natural solar export)
+    SOLAR_EXPORT = "SOLAR_EXPORT"  # Export solar to grid; hold battery at floor
 
 
 def _discretize_state_action_space(
@@ -520,6 +521,71 @@ def _build_period_data(
     )
 
 
+def _build_solar_export_period_data(
+    soe: float,
+    next_soe: float,
+    standby_drain_kwh: float,
+    period: int,
+    home_consumption: float,
+    buy_price: list[float],
+    sell_price: list[float],
+    solar_production: float,
+    cost_basis: float,
+    currency: str,
+) -> PeriodData:
+    """Build PeriodData for a SOLAR_EXPORT period.
+
+    Solar goes directly to grid export. Home load is served from grid.
+    Battery stays at current SOE minus standby drain (no passive charging).
+    """
+    current_buy_price = buy_price[period]
+    current_sell_price = sell_price[period]
+
+    grid_imported = home_consumption
+    grid_exported = solar_production
+    battery_charged = 0.0
+    battery_discharged = standby_drain_kwh
+
+    energy_data = EnergyData(
+        solar_production=solar_production,
+        home_consumption=home_consumption,
+        battery_charged=battery_charged,
+        battery_discharged=battery_discharged,
+        grid_imported=grid_imported,
+        grid_exported=grid_exported,
+        battery_soe_start=soe,
+        battery_soe_end=next_soe,
+    )
+
+    battery_wear_cost = 0.0
+    import_cost = grid_imported * current_buy_price
+    export_revenue = grid_exported * current_sell_price
+    total_cost = import_cost - export_revenue + battery_wear_cost
+    reward = -total_cost
+
+    decision_data = DecisionData(
+        strategic_intent="SOLAR_EXPORT",
+        battery_action=0.0,
+        cost_basis=cost_basis,
+    )
+
+    economic_data = EconomicData.from_energy_data(
+        energy_data=energy_data,
+        buy_price=current_buy_price,
+        sell_price=current_sell_price,
+        battery_cycle_cost=battery_wear_cost,
+    )
+
+    return PeriodData(
+        period=period,
+        energy=energy_data,
+        timestamp=None,
+        data_source="predicted",
+        economic=economic_data,
+        decision=decision_data,
+    )
+
+
 def print_optimization_results(results, buy_prices, sell_prices):
     """Log a detailed results table with strategic intents - new format version.
 
@@ -781,27 +847,63 @@ def _run_dynamic_programming(
                     best_next_soe = next_soe
                     best_standby_drain = standby_drain
 
+            # Evaluate SOLAR_EXPORT: export all solar directly, battery stays at SOE
+            # minus standby drain, no passive charging.  Only considered when solar
+            # is present to avoid spurious intent on dark periods.
+            _solar_export_selected = False
+            if solar_production[t] > POWER_TOLERANCE_KW * dt:
+                se_next_soe, se_drain = _apply_standby_loss(soe, battery_settings, dt)
+                se_next_i = round(
+                    (se_next_soe - battery_settings.min_soe_kwh) / SOE_STEP_KWH
+                )
+                se_next_i = min(max(0, se_next_i), len(soe_levels) - 1)
+                se_reward = -(
+                    home_consumption[t] * buy_price[t]
+                    - solar_production[t] * sell_price[t]
+                )
+                se_value = se_reward + V[t + 1, se_next_i]
+                if se_value > best_value:
+                    best_value = se_value
+                    _solar_export_selected = True
+                    best_next_soe = se_next_soe
+                    best_standby_drain = se_drain
+                    best_new_cost_basis = C[t, i]
+
             # Store results
             V[t, i] = best_value
             policy[t, i] = best_action
 
             # Build PeriodData once for the winning action (not in the hot path)
             if best_value > float("-inf"):
-                stored_period_data[(t, i)] = _build_period_data(
-                    power=best_action,
-                    soe=soe,
-                    next_soe=best_next_soe,
-                    standby_drain_kwh=best_standby_drain,
-                    period=t,
-                    home_consumption=home_consumption[t],
-                    battery_settings=battery_settings,
-                    dt=dt,
-                    solar_production=solar_production[t],
-                    buy_price=buy_price,
-                    sell_price=sell_price,
-                    new_cost_basis=best_new_cost_basis,
-                    currency=currency,
-                )
+                if _solar_export_selected:
+                    stored_period_data[(t, i)] = _build_solar_export_period_data(
+                        soe=soe,
+                        next_soe=best_next_soe,
+                        standby_drain_kwh=best_standby_drain,
+                        period=t,
+                        home_consumption=home_consumption[t],
+                        buy_price=buy_price,
+                        sell_price=sell_price,
+                        solar_production=solar_production[t],
+                        cost_basis=C[t, i],
+                        currency=currency,
+                    )
+                else:
+                    stored_period_data[(t, i)] = _build_period_data(
+                        power=best_action,
+                        soe=soe,
+                        next_soe=best_next_soe,
+                        standby_drain_kwh=best_standby_drain,
+                        period=t,
+                        home_consumption=home_consumption[t],
+                        battery_settings=battery_settings,
+                        dt=dt,
+                        solar_production=solar_production[t],
+                        buy_price=buy_price,
+                        sell_price=sell_price,
+                        new_cost_basis=best_new_cost_basis,
+                        currency=currency,
+                    )
             else:
                 # No valid action found - create a default IDLE PeriodData
                 # This can happen at boundary states (e.g., max SOE with unprofitable discharge)

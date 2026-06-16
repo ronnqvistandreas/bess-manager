@@ -26,6 +26,7 @@ class InverterController(ABC):
     - LOAD_SUPPORT    → grid_charge=False, charge_rate=0,   discharge_rate=100
     - EXPORT_ARBITRAGE → grid_charge=False, charge_rate=0,  discharge_rate=<action-derived>
     - IDLE            → grid_charge=False, charge_rate=100, discharge_rate=0
+    - SOLAR_EXPORT    → grid_charge=False, charge_rate=0,   discharge_rate=100  (grid_first mode)
     """
 
     # Map strategic intents to inverter control settings.
@@ -44,6 +45,11 @@ class InverterController(ABC):
             "discharge_rate": 100,
         },
         "IDLE": {"grid_charge": False, "charge_rate": 100, "discharge_rate": 0},
+        "SOLAR_EXPORT": {
+            "grid_charge": False,
+            "charge_rate": 0,
+            "discharge_rate": 100,
+        },
     }
 
     # Map strategic intents to battery modes (shared across Growatt MIN and SPH).
@@ -53,6 +59,7 @@ class InverterController(ABC):
         "LOAD_SUPPORT": "load_first",
         "EXPORT_ARBITRAGE": "grid_first",
         "IDLE": "load_first",
+        "SOLAR_EXPORT": "grid_first",
     }
 
     # Human-readable descriptions of strategic intents.
@@ -62,6 +69,7 @@ class InverterController(ABC):
         "LOAD_SUPPORT": "Using battery to support home consumption",
         "EXPORT_ARBITRAGE": "Selling stored energy to grid for profit",
         "IDLE": "No significant battery activity",
+        "SOLAR_EXPORT": "Exporting solar to grid; holding battery at floor",
     }
 
     # ── Platform capabilities ──────────────────────────────────────────────

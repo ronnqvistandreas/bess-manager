@@ -1087,7 +1087,7 @@ class BatterySystemManager:
             len(day_profiles),
         )
 
-        return avg_profile
+        return self._apply_standby_loss_correction(avg_profile)
 
     def _get_ha_statistics_forecast(self) -> list[float]:
         """Get consumption forecast from HA Recorder long-term statistics.
@@ -1217,7 +1217,27 @@ class BatterySystemManager:
             target_sensor,
         )
 
-        return quarterly_profile
+        return self._apply_standby_loss_correction(quarterly_profile)
+
+    def _apply_standby_loss_correction(self, profile: list[float]) -> list[float]:
+        """Subtract inverter standby draw from each quarter-hour consumption sample.
+
+        Historical consumption data measured at the main feed includes the inverter's
+        standby draw whenever the battery was above the minimum reserve floor. Subtract
+        standby_loss_kw × dt_quarter from each sample so the optimizer sees the true
+        home load. The correction is skipped for any sample that would fall below
+        default_hourly/4 — an already-low reading indicates the battery was at the
+        floor during that period and the drain was not present.
+        """
+        dt_quarter = 0.25
+        loss_per_quarter = self.battery_settings.standby_loss_kw * dt_quarter
+        if loss_per_quarter <= 0.0:
+            return profile
+        floor = self.home_settings.default_hourly / 4.0
+        return [
+            v - loss_per_quarter if v - loss_per_quarter >= floor else v
+            for v in profile
+        ]
 
     def _handle_special_cases(self, period: int, prepare_next_day: bool) -> None:
         """Handle special cases like midnight transition."""
