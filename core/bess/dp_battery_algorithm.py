@@ -468,7 +468,9 @@ def _build_period_data(
         energy_stored = power * dt * battery_settings.efficiency_charge
         battery_wear_cost = energy_stored * battery_settings.cycle_cost_per_kwh
 
-        expected_stored = next_soe - soe
+        # next_soe already has standby_drain_kwh subtracted, so add it back
+        # to get the gross SOE increase from charging alone.
+        expected_stored = (next_soe - soe) + standby_drain_kwh
         if abs(energy_stored - expected_stored) > 0.01:
             logger.warning(
                 f"Energy stored mismatch: calculated={energy_stored:.3f}, "
