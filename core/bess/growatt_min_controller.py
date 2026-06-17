@@ -89,12 +89,12 @@ class GrowattMinController(InverterController):
       Purpose: Charge battery from grid during cheap hours for later arbitrage.
       Flow: Grid → battery (AC charging). Grid → home. Battery does not discharge.
 
-    SOLAR_STORAGE (load_first, grid_charge=False, charge=100, discharge=0):
-      Purpose: Store excess solar for expensive evening hours.
-      Flow: Solar → home first, excess solar → battery. Grid covers any shortfall.
-      Battery does not discharge — energy preserved for later LOAD_SUPPORT.
-      Uses load_first so solar serves home directly, avoiding unnecessary grid import
-      that battery_first would cause by routing solar to battery first.
+    SOLAR_STORAGE (load_first, grid_charge=False, charge=100, discharge=100):
+      Purpose: Store excess solar for expensive evening hours while serving home load.
+      Flow: Solar → home first, excess solar → battery. Battery discharges to cover
+      any shortfall when home load exceeds solar production. Grid covers remainder.
+      Uses load_first so solar serves home directly. discharge=100 allows the inverter
+      to draw from battery whenever load exceeds solar, without importing from grid.
 
     LOAD_SUPPORT (load_first, grid_charge=False, charge=0, discharge=100):
       Purpose: Discharge stored energy to offset expensive grid consumption.
@@ -108,15 +108,17 @@ class GrowattMinController(InverterController):
     IDLE (load_first, grid_charge=False, charge=100, discharge=0):
       Purpose: Normal operation when no active strategy is needed.
       Flow: Solar → home, excess solar → battery. Grid covers shortfall.
-      Battery does not discharge. Similar to SOLAR_STORAGE but without
-      active optimization intent.
+      Battery does not discharge. Unlike SOLAR_STORAGE, IDLE allows no discharge
+      even to cover home load — the optimizer has decided no action is warranted.
 
-    Design rationale — why SOLAR_STORAGE and IDLE use the same inverter settings:
+    Design rationale — why SOLAR_STORAGE and IDLE differ from each other:
 
-    SOLAR_STORAGE and IDLE produce identical inverter behavior (load_first, charge
-    enabled, no discharge). The distinction is semantic: the DP algorithm uses
-    SOLAR_STORAGE when it actively decides to accumulate energy, and IDLE when no
-    strategy is needed. At the inverter level, load_first is correct for both because:
+    SOLAR_STORAGE uses discharge=100 so the battery can cover home load when solar
+    falls short, avoiding grid import during the charging window.
+    IDLE uses discharge=0 because no optimization intent is active — the battery
+    holds energy without any active strategy.
+
+    Both use load_first because:
 
     1. Solar energy serving the home directly is always >= the value of routing it
        through the battery (which incurs cycle cost and conversion losses).
@@ -127,9 +129,7 @@ class GrowattMinController(InverterController):
        battery first, forcing unnecessary grid import to serve the home — a strictly
        worse outcome when there is excess solar.
 
-    Therefore only GRID_CHARGING uses battery_first mode. All other intents that
-    allow charging (SOLAR_STORAGE, IDLE) use load_first to ensure solar serves the
-    home before excess flows to the battery.
+    Therefore only GRID_CHARGING uses battery_first mode.
     """
 
     def __init__(self, battery_settings: BatterySettings) -> None:

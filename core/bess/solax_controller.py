@@ -54,6 +54,21 @@ class SolaxController(InverterController):
         """Initialise the SolaX controller."""
         super().__init__(battery_settings)
 
+    # ── Intent → hardware rates ───────────────────────────────────────────────
+
+    def _map_intent_to_rates(
+        self, intent: str, battery_action_kw: float
+    ) -> tuple[bool, int]:
+        """Map intent to (grid_charge, discharge_rate) for SolaX VPP control.
+
+        SOLAR_STORAGE keeps discharge_rate=0 so that _write_period_to_hardware
+        disables VPP and lets the inverter handle solar charging in self-use mode,
+        rather than issuing a discharge command.
+        """
+        if intent == "SOLAR_STORAGE":
+            return False, 0
+        return super()._map_intent_to_rates(intent, battery_action_kw)
+
     # ── Abstract property ─────────────────────────────────────────────────────
 
     @property

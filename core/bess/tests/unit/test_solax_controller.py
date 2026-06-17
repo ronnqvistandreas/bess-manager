@@ -119,7 +119,7 @@ class TestWritePeriodToHardwareDisablesVppForIdle:
         mock_hw.set_solax_active_power_control.assert_not_called()
 
     def test_solar_storage_also_disables_vpp(self, controller: SolaxController) -> None:
-        # SOLAR_STORAGE maps to grid_charge=False, discharge_rate=0
+        # SOLAR_STORAGE maps to grid_charge=False, discharge_rate=0 on SolaX
         mock_hw = MagicMock()
         controller._write_period_to_hardware(
             mock_hw, grid_charge=False, discharge_rate=0

@@ -263,7 +263,7 @@ class TestEndToEndChargeDischargeRates:
 
     @pytest.mark.parametrize("scenario_name", _get_realworld_scenarios())
     def test_solar_storage_periods_have_correct_rates(self, scenario_name):
-        """SOLAR_STORAGE: grid_charge=False, charge_rate=100%, discharge_rate=0%."""
+        """SOLAR_STORAGE: grid_charge=False, charge_rate=100%, discharge_rate=100%."""
         scenario = _load_scenario(scenario_name)
         scheduler, _ = _run_and_build_schedule(scenario)
 
@@ -277,8 +277,8 @@ class TestEndToEndChargeDischargeRates:
                     settings["charge_rate"] == 100
                 ), f"{scenario_name} period {period}: SOLAR_STORAGE charge_rate={settings['charge_rate']}, expected 100"
                 assert (
-                    settings["discharge_rate"] == 0
-                ), f"{scenario_name} period {period}: SOLAR_STORAGE discharge_rate={settings['discharge_rate']}, expected 0"
+                    settings["discharge_rate"] == 100
+                ), f"{scenario_name} period {period}: SOLAR_STORAGE discharge_rate={settings['discharge_rate']}, expected 100"
 
     @pytest.mark.parametrize("scenario_name", _get_realworld_scenarios())
     def test_load_support_periods_have_correct_rates(self, scenario_name):
