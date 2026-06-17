@@ -62,6 +62,7 @@ const SetupWizardPage: React.FC = () => {
     powerMonitoringEnabled: true,
     solarPvMinWatts: 100,
     solarDischargeLoadMultiplier: 2.0,
+    plannedLoadEvents: [],
   });
 
   const [pricingForm, setPricingForm] = useState<PricingForm>({

@@ -1,5 +1,6 @@
 import React from 'react';
 import { numField, radioGroup, toggle, SectionCard } from './FormHelpers';
+import type { PlannedLoadEvent } from '../../types';
 
 export interface HomeForm {
   consumption: number;
@@ -11,6 +12,7 @@ export interface HomeForm {
   powerMonitoringEnabled: boolean;
   solarPvMinWatts: number;
   solarDischargeLoadMultiplier: number;
+  plannedLoadEvents: PlannedLoadEvent[];
 }
 
 interface Props {
@@ -141,6 +143,146 @@ export function HomeFormSection({ form, onChange, sensors }: Props) {
             { min: 1, step: 0.1 })}
         </div>
       </SectionCard>
+
+      <SectionCard
+        title="Planned High-Load Events"
+        description="Tell the optimizer when you expect a high load (e.g. EV charging). It will pre-charge the battery in preparation using solar when available."
+      >
+        <p className="text-xs text-gray-500 dark:text-gray-400 pb-2">
+          Each event adds the specified load to the consumption forecast for the time window, so
+          the optimizer naturally pre-charges before the window. Set a Solar Minimum to suppress
+          pre-charging on cloudy days — the grid will then serve the load directly.
+        </p>
+        <div className="space-y-3">
+          {form.plannedLoadEvents.map((evt, idx) => (
+            <PlannedEventRow
+              key={idx}
+              event={evt}
+              onChange={updated => {
+                const next = [...form.plannedLoadEvents];
+                next[idx] = updated;
+                onChange({ ...form, plannedLoadEvents: next });
+              }}
+              onRemove={() => {
+                const next = form.plannedLoadEvents.filter((_, i) => i !== idx);
+                onChange({ ...form, plannedLoadEvents: next });
+              }}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => onChange({
+              ...form,
+              plannedLoadEvents: [
+                ...form.plannedLoadEvents,
+                { label: 'EV charging', startPeriod: 52, endPeriod: 67, extraKw: 7.0, active: true, solarMinKwh: 0 },
+              ],
+            })}
+            className="flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add event
+          </button>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+function periodToTime(period: number): string {
+  const h = Math.floor(period / 4).toString().padStart(2, '0');
+  const m = ((period % 4) * 15).toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function timeToPeriod(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return (h ?? 0) * 4 + Math.floor((m ?? 0) / 15);
+}
+
+interface RowProps {
+  event: PlannedLoadEvent;
+  onChange: (e: PlannedLoadEvent) => void;
+  onRemove: () => void;
+}
+
+function PlannedEventRow({ event, onChange, onRemove }: RowProps) {
+  return (
+    <div className={`rounded-lg border p-3 space-y-3 ${event.active ? 'border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 opacity-60'}`}>
+      <div className="flex items-center gap-3">
+        <input
+          type="text"
+          value={event.label}
+          onChange={e => onChange({ ...event, label: e.target.value })}
+          placeholder="Label"
+          className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          type="button"
+          role="switch"
+          aria-checked={event.active}
+          onClick={() => onChange({ ...event, active: !event.active })}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${event.active ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+        >
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${event.active ? 'translate-x-6' : 'translate-x-1'}`} />
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+          aria-label="Remove event"
+        >
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        </button>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <label className="block">
+          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Start</span>
+          <input
+            type="time"
+            step="900"
+            value={periodToTime(event.startPeriod)}
+            onChange={e => onChange({ ...event, startPeriod: timeToPeriod(e.target.value) })}
+            className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">End</span>
+          <input
+            type="time"
+            step="900"
+            value={periodToTime(event.endPeriod)}
+            onChange={e => onChange({ ...event, endPeriod: timeToPeriod(e.target.value) })}
+            className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Extra load (kW)</span>
+          <input
+            type="number"
+            min={0.1}
+            step={0.5}
+            value={event.extraKw}
+            onChange={e => { const n = parseFloat(e.target.value); if (!Number.isNaN(n)) onChange({ ...event, extraKw: n }); }}
+            className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Solar min (kWh)</span>
+          <input
+            type="number"
+            min={0}
+            step={0.5}
+            value={event.solarMinKwh}
+            onChange={e => { const n = parseFloat(e.target.value); if (!Number.isNaN(n)) onChange({ ...event, solarMinKwh: n }); }}
+            className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+      </div>
+      <p className="text-xs text-gray-400 dark:text-gray-500">
+        {periodToTime(event.startPeriod)}–{periodToTime(event.endPeriod)}, +{event.extraKw} kW
+        {event.solarMinKwh > 0 ? ` · only when solar forecast ≥ ${event.solarMinKwh} kWh in window` : ' · always active'}
+      </p>
     </div>
   );
 }

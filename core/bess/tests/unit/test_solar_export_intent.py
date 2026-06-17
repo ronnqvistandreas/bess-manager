@@ -66,7 +66,9 @@ class TestSolarExportChosen:
         )
 
         export_period = next(
-            p for p in result.period_data if p.decision.strategic_intent == "SOLAR_EXPORT"
+            p
+            for p in result.period_data
+            if p.decision.strategic_intent == "SOLAR_EXPORT"
         )
         assert export_period.energy.battery_charged == pytest.approx(0.0)
         assert export_period.energy.grid_exported == pytest.approx(2.0)
@@ -87,7 +89,9 @@ class TestSolarExportChosen:
         )
 
         export_period = next(
-            p for p in result.period_data if p.decision.strategic_intent == "SOLAR_EXPORT"
+            p
+            for p in result.period_data
+            if p.decision.strategic_intent == "SOLAR_EXPORT"
         )
         assert export_period.energy.battery_soe_start == pytest.approx(floor)
         assert export_period.energy.battery_soe_end == pytest.approx(floor)
@@ -158,8 +162,13 @@ class TestSolarExportInverterMapping:
 
     def test_solar_export_does_not_enable_grid_charging(self):
         """SOLAR_EXPORT should not enable grid charging."""
-        assert GrowattMinController.INTENT_TO_CONTROL["SOLAR_EXPORT"]["grid_charge"] is False
+        assert (
+            GrowattMinController.INTENT_TO_CONTROL["SOLAR_EXPORT"]["grid_charge"]
+            is False
+        )
 
     def test_solar_export_sets_zero_charge_rate(self):
         """SOLAR_EXPORT should not allow battery charging from any source."""
-        assert GrowattMinController.INTENT_TO_CONTROL["SOLAR_EXPORT"]["charge_rate"] == 0
+        assert (
+            GrowattMinController.INTENT_TO_CONTROL["SOLAR_EXPORT"]["charge_rate"] == 0
+        )

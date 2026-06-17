@@ -45,9 +45,12 @@ def _run_forecast(manager: BatterySystemManager, kw_value: float) -> list[float]
     def mock_batch(sensors, target_date):
         return {"status": "success", "data": period_data}
 
-    with patch(
-        "core.bess.battery_system_manager.get_power_sensor_data_batch", mock_batch
-    ), patch("core.bess.battery_system_manager.time_utils") as mock_tu:
+    with (
+        patch(
+            "core.bess.battery_system_manager.get_power_sensor_data_batch", mock_batch
+        ),
+        patch("core.bess.battery_system_manager.time_utils") as mock_tu,
+    ):
         mock_tu.today.return_value = date(2026, 5, 12)
         return manager._get_influxdb_7d_avg_forecast()
 

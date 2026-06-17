@@ -45,6 +45,7 @@ const EMPTY_HOME: HomeForm = {
   maxFuseCurrent: 25, voltage: 230, safetyMarginFactor: 1.0,
   phaseCount: 3, powerMonitoringEnabled: true,
   solarPvMinWatts: 100, solarDischargeLoadMultiplier: 2.0,
+  plannedLoadEvents: [],
 };
 const EMPTY_PRICING: PricingForm = {
   currency: 'SEK',
@@ -178,6 +179,7 @@ const SettingsPage: React.FC = () => {
         powerMonitoringEnabled: home_s.powerMonitoringEnabled ?? true,
         solarPvMinWatts: home_s.solarPvMinWatts ?? 100,
         solarDischargeLoadMultiplier: home_s.solarDischargeLoadMultiplier ?? 2.0,
+        plannedLoadEvents: home_s.plannedLoadEvents ?? [],
       };
       setHomeForm(h);
       savedHome.current = JSON.stringify(h);
@@ -375,6 +377,7 @@ const SettingsPage: React.FC = () => {
           currency: pricingForm.currency,
           solarPvMinWatts: homeForm.solarPvMinWatts,
           solarDischargeLoadMultiplier: homeForm.solarDischargeLoadMultiplier,
+          plannedLoadEvents: homeForm.plannedLoadEvents,
         },
       });
       savedHome.current = JSON.stringify(homeForm);

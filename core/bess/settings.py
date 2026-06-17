@@ -176,6 +176,48 @@ class BatterySettings:
 
 
 @dataclass
+class PlannedLoadEvent:
+    """A one-off load event that the optimizer should prepare for.
+
+    When active, the optimizer sees an elevated consumption forecast for the
+    event window and will pre-charge the battery (from solar when available,
+    from grid when economics justify it).  Setting solar_min_kwh > 0 suppresses
+    the event on days where the solar forecast for the pre-charge window is too
+    low — on those days the battery stays idle and the grid serves the load
+    directly, avoiding unnecessary battery cycles.
+    """
+
+    label: str
+    start_period: int  # 0-95 (quarterly)
+    end_period: int  # 0-95, inclusive
+    extra_kw: float  # additional load assumed during the window
+    active: bool = True
+    solar_min_kwh: float = 0.0  # suppress event if solar forecast < this (kWh)
+
+    def extra_kwh_per_period(self) -> float:
+        """Energy added per 15-minute period (kWh)."""
+        return self.extra_kw * 0.25
+
+    def applies(self, solar_forecast: list[float]) -> bool:
+        """Return True when the event should be injected into the forecast.
+
+        Args:
+            solar_forecast: Per-period solar production forecast (kWh, 96 periods).
+        """
+        if not self.active:
+            return False
+        if self.solar_min_kwh <= 0.0:
+            return True
+        # Sum solar over the event window (the period during which the load occurs)
+        window_solar = sum(
+            solar_forecast[p]
+            for p in range(self.start_period, self.end_period + 1)
+            if p < len(solar_forecast)
+        )
+        return window_solar >= self.solar_min_kwh
+
+
+@dataclass
 class HomeSettings:
     """Home electrical settings."""
 
@@ -190,6 +232,7 @@ class HomeSettings:
     power_monitoring_enabled: bool = False
     solar_pv_min_watts: float = SOLAR_PV_MIN_WATTS
     solar_discharge_load_multiplier: float = SOLAR_DISCHARGE_LOAD_MULTIPLIER
+    planned_load_events: list[PlannedLoadEvent] = field(default_factory=list)
 
     def __post_init__(self):
         assert self.phase_count in (
@@ -202,6 +245,18 @@ class HomeSettings:
         for key, value in kwargs.items():
             # Convert camelCase to snake_case for compatibility with API layer
             snake_key = _camel_to_snake(key)
+            if snake_key == "planned_load_events":
+                self.planned_load_events = [
+                    (
+                        PlannedLoadEvent(
+                            **{_camel_to_snake(k): v for k, v in e.items()}
+                        )
+                        if isinstance(e, dict)
+                        else e
+                    )
+                    for e in value
+                ]
+                continue
             if not hasattr(self, snake_key):
                 raise AttributeError(
                     f"HomeSettings has no attribute '{snake_key}' (from key '{key}')"

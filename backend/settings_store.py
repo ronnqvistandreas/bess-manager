@@ -391,6 +391,7 @@ class SettingsStore:
                 "power_monitoring_enabled": False,
                 "solar_pv_min_watts": SOLAR_PV_MIN_WATTS,
                 "solar_discharge_load_multiplier": SOLAR_DISCHARGE_LOAD_MULTIPLIER,
+                "planned_load_events": [],
             },
             "electricity_price": {
                 "markup_rate": MARKUP_RATE,
@@ -504,6 +505,7 @@ class SettingsStore:
             for key, default in (
                 ("solar_pv_min_watts", SOLAR_PV_MIN_WATTS),
                 ("solar_discharge_load_multiplier", SOLAR_DISCHARGE_LOAD_MULTIPLIER),
+                ("planned_load_events", []),
             ):
                 if key not in home:
                     home[key] = default

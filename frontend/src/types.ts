@@ -273,4 +273,13 @@ export interface RuntimeFailure {
   retry_count: number;
 }
 
+export interface PlannedLoadEvent {
+  label: string;
+  startPeriod: number;    // 0–95 (quarterly)
+  endPeriod: number;      // 0–95, inclusive
+  extraKw: number;        // additional load assumed during the window (kW)
+  active: boolean;
+  solarMinKwh: number;    // suppress if solar forecast for window < this (kWh)
+}
+
 

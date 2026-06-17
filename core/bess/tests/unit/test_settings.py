@@ -338,3 +338,97 @@ def test_home_settings_from_ha_config_phase_count_default():
     }
     settings.from_ha_config(config)
     assert settings.phase_count == 3
+
+
+# === PlannedLoadEvent tests ===
+
+from core.bess.settings import PlannedLoadEvent  # noqa: E402
+
+
+def test_planned_load_event_applies_always_when_no_solar_guard():
+    event = PlannedLoadEvent(
+        label="EV",
+        start_period=52,
+        end_period=67,
+        extra_kw=7.0,
+        active=True,
+        solar_min_kwh=0.0,
+    )
+    assert event.applies([0.0] * 96) is True
+
+
+def test_planned_load_event_inactive_never_applies():
+    event = PlannedLoadEvent(
+        label="EV",
+        start_period=52,
+        end_period=67,
+        extra_kw=7.0,
+        active=False,
+        solar_min_kwh=0.0,
+    )
+    assert event.applies([1.0] * 96) is False
+
+
+def test_planned_load_event_solar_guard_suppresses_when_too_little_solar():
+    event = PlannedLoadEvent(
+        label="EV",
+        start_period=52,
+        end_period=67,
+        extra_kw=7.0,
+        active=True,
+        solar_min_kwh=5.0,
+    )
+    # Solar is only 0.1 kWh per period across 16 periods = 1.6 kWh total
+    solar = [0.1] * 96
+    assert event.applies(solar) is False
+
+
+def test_planned_load_event_solar_guard_allows_when_enough_solar():
+    event = PlannedLoadEvent(
+        label="EV",
+        start_period=52,
+        end_period=67,
+        extra_kw=7.0,
+        active=True,
+        solar_min_kwh=5.0,
+    )
+    # Solar is 0.5 kWh per period across 16 periods = 8 kWh total
+    solar = [0.5] * 96
+    assert event.applies(solar) is True
+
+
+def test_planned_load_event_extra_kwh_per_period():
+    event = PlannedLoadEvent(label="EV", start_period=0, end_period=0, extra_kw=4.0)
+    assert event.extra_kwh_per_period() == pytest.approx(1.0)
+
+
+def test_home_settings_update_with_planned_load_events():
+    settings = HomeSettings()
+    settings.update(
+        plannedLoadEvents=[
+            {
+                "label": "EV charging",
+                "startPeriod": 52,
+                "endPeriod": 67,
+                "extraKw": 7.0,
+                "active": True,
+                "solarMinKwh": 3.0,
+            }
+        ]
+    )
+    assert len(settings.planned_load_events) == 1
+    evt = settings.planned_load_events[0]
+    assert evt.label == "EV charging"
+    assert evt.start_period == 52
+    assert evt.end_period == 67
+    assert evt.extra_kw == pytest.approx(7.0)
+    assert evt.solar_min_kwh == pytest.approx(3.0)
+
+
+def test_home_settings_update_empty_events_list():
+    settings = HomeSettings()
+    settings.planned_load_events = [
+        PlannedLoadEvent(label="Old", start_period=0, end_period=4, extra_kw=5.0)
+    ]
+    settings.update(plannedLoadEvents=[])
+    assert settings.planned_load_events == []

@@ -1647,6 +1647,39 @@ class BatterySystemManager:
 
         return optimization_period, optimization_data
 
+    def _apply_planned_load_events(
+        self,
+        consumption_data: list[float],
+        solar_data: list[float],
+        optimization_period: int,
+    ) -> list[float]:
+        """Overlay planned high-load events onto the consumption forecast.
+
+        Only future periods (>= optimization_period) are modified — past periods
+        hold measured actuals and must not be altered.  Each active event that
+        passes its solar guard has its extra_kwh_per_period added to every period
+        in the event window.
+        """
+        if not self.home_settings.planned_load_events:
+            return consumption_data
+
+        result = list(consumption_data)
+        for event in self.home_settings.planned_load_events:
+            if not event.applies(solar_data):
+                continue
+            extra = event.extra_kwh_per_period()
+            for p in range(event.start_period, event.end_period + 1):
+                if p >= optimization_period and p < len(result):
+                    result[p] = result[p] + extra
+            logger.debug(
+                "Planned load event %r: adding %.3f kWh/period to periods %d-%d",
+                event.label,
+                extra,
+                event.start_period,
+                event.end_period,
+            )
+        return result
+
     def _calculate_terminal_value(
         self, buy_prices: list[float], optimization_period: int
     ) -> float:

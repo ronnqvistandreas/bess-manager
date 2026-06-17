@@ -23,7 +23,9 @@ PERIOD = 20  # Arbitrary test period
 # With default_hourly=1.0 kWh/h (=1000 W) and multiplier=2.0:
 # load threshold = 2000 W
 # Default mock phase currents: l1=10, l2=8, l3=12 (total 30 A x 230 V = 6900 W > 2000 W)
-DEFAULT_HOURLY = 1.0  # kWh/h — simple baseline that makes thresholds easy to reason about
+DEFAULT_HOURLY = (
+    1.0  # kWh/h — simple baseline that makes thresholds easy to reason about
+)
 
 
 class SolarController(MockHomeAssistantController):
