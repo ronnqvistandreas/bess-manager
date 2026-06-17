@@ -1632,6 +1632,10 @@ class BatterySystemManager:
         if not prepare_next_day:
             combined_soe[optimization_period] = current_soe
 
+        consumption_data = self._apply_planned_load_events(
+            consumption_data, solar_data, optimization_period
+        )
+
         optimization_data = {
             "full_consumption": consumption_data,
             "full_solar": solar_data,
