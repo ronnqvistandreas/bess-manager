@@ -902,7 +902,13 @@ class BatterySystemManager:
             hours without complete actual data).
         """
         active_strategy = self.home_settings.consumption_strategy
-        strategy_names = ["sensor", "fixed", "influxdb_7d_avg", "ha_statistics"]
+        strategy_names = [
+            "sensor",
+            "fixed",
+            "fixed_planned_events",
+            "influxdb_7d_avg",
+            "ha_statistics",
+        ]
         results = []
 
         for name in strategy_names:
@@ -920,6 +926,19 @@ class BatterySystemManager:
                 elif name == "fixed":
                     quarterly = self.home_settings.default_hourly / 4.0
                     forecast = [quarterly] * 96
+                elif name == "fixed_planned_events":
+                    quarterly = self.home_settings.default_hourly / 4.0
+                    forecast = [quarterly] * 96
+                    try:
+                        solar = (
+                            self._solar_predictions
+                            or self.controller.get_solar_forecast()
+                        )
+                    except Exception:
+                        solar = [0.0] * 96
+                    forecast = self._apply_planned_load_events(
+                        forecast, solar, optimization_period=0
+                    )
                 elif name == "influxdb_7d_avg":
                     forecast = self._get_influxdb_7d_avg_forecast()
                 elif name == "ha_statistics":

@@ -15,6 +15,7 @@ interface ChartDataPoint {
 const STRATEGY_LABELS: Record<string, string> = {
   sensor: '48h Avg Sensor',
   fixed: 'Fixed Value',
+  fixed_planned_events: 'Fixed Value + Planned High-Load Events',
   influxdb_7d_avg: 'InfluxDB 7-day Avg',
   ha_statistics: 'HA Statistics',
 };
@@ -22,6 +23,7 @@ const STRATEGY_LABELS: Record<string, string> = {
 const STRATEGY_COLORS: Record<string, string> = {
   sensor: '#ef4444',
   fixed: '#f59e0b',
+  fixed_planned_events: '#ec4899',
   influxdb_7d_avg: '#3b82f6',
   ha_statistics: '#8b5cf6',
 };
@@ -169,7 +171,7 @@ const ConsumptionForecastComparison: React.FC = () => {
       {expanded && (
         <div className="px-6 pb-6 space-y-4">
           {/* Metrics cards — sorted by MAE */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {sortedStrategies.map((strat, idx) => {
               const color = STRATEGY_COLORS[strat.name] || '#6b7280';
               const label = STRATEGY_LABELS[strat.name] || strat.name;
