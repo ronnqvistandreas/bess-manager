@@ -2,11 +2,14 @@
 
 import pytest
 
+from core.bess.decision_intelligence import classify_strategic_intent
 from core.bess.dp_battery_algorithm import (
     _build_period_data,
     _state_transition,
     optimize_battery_schedule,
 )
+from core.bess.growatt_min_controller import GrowattMinController
+from core.bess.models import EnergyData
 from core.bess.settings import BatterySettings
 
 
@@ -206,3 +209,46 @@ def test_all_idle_schedule_drains_soe_when_standby_configured():
     assert result.period_data[0].energy.battery_soe_end == pytest.approx(9.7)
     assert result.period_data[1].energy.battery_soe_end == pytest.approx(9.4)
     assert result.period_data[0].energy.battery_discharged == pytest.approx(0.3)
+
+
+def test_standby_only_idle_period_classifies_as_idle():
+    """Power=0 with only standby drain must be IDLE, not LOAD_SUPPORT."""
+    _, kwargs = _standby_hold_scenario()
+    result = optimize_battery_schedule(**kwargs)
+
+    for idx, period in enumerate(result.period_data):
+        assert (
+            period.decision.strategic_intent == "IDLE"
+        ), f"period {idx}: expected IDLE, got {period.decision.strategic_intent}"
+        assert period.decision.battery_action == pytest.approx(0.0)
+
+
+def test_classify_strategic_intent_standby_only_is_idle():
+    standby = 0.2
+    energy = EnergyData(
+        solar_production=0.0,
+        home_consumption=0.5,
+        battery_charged=0.0,
+        battery_discharged=standby,
+        grid_imported=0.5,
+        grid_exported=0.0,
+        battery_soe_start=10.0,
+        battery_soe_end=9.8,
+    )
+    assert classify_strategic_intent(0.0, energy, standby_drain_kwh=standby) == "IDLE"
+
+
+def test_standby_idle_maps_to_zero_discharge_rate():
+    """IDLE intent must program discharge_rate=0 so grid can cover home load."""
+    settings, kwargs = _standby_hold_scenario()
+    result = optimize_battery_schedule(**kwargs)
+    controller = GrowattMinController(settings)
+
+    for idx, period in enumerate(result.period_data):
+        _, discharge_rate = controller._map_intent_to_rates(
+            period.decision.strategic_intent, 0.0
+        )
+        assert discharge_rate == 0, (
+            f"period {idx}: {period.decision.strategic_intent} "
+            f"got discharge_rate={discharge_rate}"
+        )

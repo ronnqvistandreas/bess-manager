@@ -411,7 +411,11 @@ def extract_economic_values_from_reward(
     return immediate_value, future_value
 
 
-def classify_strategic_intent(power: float, energy_data: EnergyData) -> str:
+def classify_strategic_intent(
+    power: float,
+    energy_data: EnergyData,
+    standby_drain_kwh: float = 0.0,
+) -> str:
     """Classify the strategic intent of a battery action based on power and energy flows.
 
     Intent controls hardware behavior via the Growatt TOU schedule and is displayed
@@ -424,6 +428,8 @@ def classify_strategic_intent(power: float, energy_data: EnergyData) -> str:
     Args:
         power: Battery power action (+ charge, - discharge) in kW.
         energy_data: Complete energy flow data for the period.
+        standby_drain_kwh: Pack-side parasitic drain included in battery_discharged
+            but not strategic discharge to home/grid.
 
     Returns:
         One of: GRID_CHARGING, SOLAR_STORAGE, LOAD_SUPPORT, EXPORT_ARBITRAGE, IDLE.
@@ -438,7 +444,8 @@ def classify_strategic_intent(power: float, energy_data: EnergyData) -> str:
         return "SOLAR_STORAGE"
     elif energy_data.battery_charged > 0.01:
         return "SOLAR_STORAGE"
-    elif energy_data.battery_discharged > 0.01:
+    strategic_discharged = energy_data.battery_discharged - standby_drain_kwh
+    if strategic_discharged > 0.01:
         return "LOAD_SUPPORT"
     return "IDLE"
 
@@ -456,6 +463,7 @@ def create_decision_data(
     sell_price: float,
     dt: float,
     currency: str,
+    standby_drain_kwh: float = 0.0,
 ) -> DecisionData:
     """
     Create enhanced DecisionData with rich pattern analysis and economic reasoning.
@@ -481,7 +489,9 @@ def create_decision_data(
     Returns:
         Enhanced DecisionData with all fields populated including advanced flow patterns
     """
-    strategic_intent = classify_strategic_intent(power, energy_data)
+    strategic_intent = classify_strategic_intent(
+        power, energy_data, standby_drain_kwh=standby_drain_kwh
+    )
 
     # Generate high-level strategic pattern name
     pattern_name = generate_strategic_pattern_name(strategic_intent, energy_data)

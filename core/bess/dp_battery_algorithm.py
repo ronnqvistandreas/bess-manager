@@ -502,6 +502,7 @@ def _build_period_data(
         sell_price=current_sell_price,
         dt=dt,
         currency=currency,
+        standby_drain_kwh=standby_drain_kwh,
     )
 
     economic_data = EconomicData.from_energy_data(
@@ -952,7 +953,9 @@ def _run_dynamic_programming(
                     battery_cycle_cost=idle_wear_cost,
                 )
                 idle_decision = DecisionData(
-                    strategic_intent=classify_strategic_intent(0.0, idle_energy),
+                    strategic_intent=classify_strategic_intent(
+                        0.0, idle_energy, standby_drain_kwh=idle_standby_drain
+                    ),
                     battery_action=0.0,
                     cost_basis=C[t, i],
                 )
@@ -1072,7 +1075,9 @@ def _create_idle_schedule(
         )
 
         decision_data = DecisionData(
-            strategic_intent=classify_strategic_intent(0.0, energy_data),
+            strategic_intent=classify_strategic_intent(
+                0.0, energy_data, standby_drain_kwh=standby_drain
+            ),
             battery_action=0.0,
             cost_basis=current_cost_basis,
         )
