@@ -132,6 +132,60 @@ def test_battery_settings_accepts_standby_loss_kw_via_camel_case():
     assert settings.standby_loss_kw == 0.25
 
 
+def _standby_hold_scenario(**settings_kwargs):
+    """Prices and load where DP holds charge; only standby drains the pack."""
+    settings = _battery_settings(
+        standby_loss_kw=0.2,
+        min_action_profit_threshold=0.0,
+        cycle_cost_per_kwh=10.0,
+        min_soc=10,
+        **settings_kwargs,
+    )
+    horizon = 16
+    return settings, dict(
+        buy_price=[2.0] * horizon,
+        sell_price=[0.01] * horizon,
+        home_consumption=[0.125] * horizon,
+        solar_production=[0.0] * horizon,
+        initial_soe=9.7,
+        battery_settings=settings,
+        period_duration_hours=0.25,
+        initial_cost_basis=5.0,
+    )
+
+
+def test_optimize_schedule_chains_soe_under_standby_loss():
+    """DP path extraction must chain SOE down each quarter, not reset to grid point."""
+    settings, kwargs = _standby_hold_scenario()
+    drain_per_quarter = settings.standby_loss_kw * kwargs["period_duration_hours"]
+
+    result = optimize_battery_schedule(**kwargs)
+
+    for idx, period in enumerate(result.period_data):
+        expected_start = kwargs["initial_soe"] - idx * drain_per_quarter
+        expected_end = expected_start - drain_per_quarter
+        assert period.energy.battery_soe_start == pytest.approx(expected_start)
+        assert period.energy.battery_soe_end == pytest.approx(expected_end)
+        assert period.energy.battery_discharged == pytest.approx(drain_per_quarter)
+
+
+def test_optimize_schedule_float_boundary_does_not_stall_soe():
+    """Chained SOE must keep decreasing when initial SOE sits on a float grid boundary."""
+    settings, kwargs = _standby_hold_scenario()
+    kwargs["initial_soe"] = 9.700000000000006
+    drain_per_quarter = settings.standby_loss_kw * kwargs["period_duration_hours"]
+
+    result = optimize_battery_schedule(**kwargs)
+
+    for idx in range(1, len(result.period_data)):
+        prev = result.period_data[idx - 1].energy.battery_soe_start
+        curr = result.period_data[idx].energy.battery_soe_start
+        assert curr < prev
+    assert result.period_data[0].energy.battery_soe_end == pytest.approx(
+        kwargs["initial_soe"] - drain_per_quarter
+    )
+
+
 def test_all_idle_schedule_drains_soe_when_standby_configured():
     """Fallback all-IDLE schedule must model standby bleed, not flat SOE."""
     settings = _battery_settings(
