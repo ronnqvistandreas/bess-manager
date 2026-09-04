@@ -55,24 +55,21 @@ def _run_forecast(manager: BatterySystemManager, kw_value: float) -> list[float]
         return manager._get_influxdb_7d_avg_forecast()
 
 
-class TestInfluxdbStandbyCorrection:
-    """influxdb_7d_avg forecast must apply the same standby-loss correction
-    as the ha_statistics path, so both strategies produce true home load."""
+class TestInfluxdbForecastUsesRawValues:
+    """influxdb_7d_avg forecast must not subtract standby_loss_kw. Raw samples
+    already include standby on above-floor periods; the DP handles floor vs
+    active SOE.
+    """
 
-    def test_standby_loss_subtracted_from_influxdb_forecast(self):
-        """With standby_loss_kw=0.3, each period value is reduced by 0.075 kWh.
-
-        The influxdb profile stores kWh per quarter-hour period. At 0.5 kWh/qh,
-        after subtracting standby drain (0.3 kW × 0.25 h = 0.075 kWh):
-        0.5 - 0.075 = 0.425 kWh/qh.
-        """
+    def test_influxdb_forecast_keeps_raw_sensor_values(self):
+        """standby_loss_kw must not be subtracted from influxdb samples."""
         manager, kwh_value = _create_manager_with_influxdb(
             kw_value=0.5, standby_loss_kw=0.3, default_hourly=1.0
         )
         result = _run_forecast(manager, kwh_value)
 
         assert len(result) == 96
-        assert all(abs(v - 0.425) < 0.001 for v in result)
+        assert all(abs(v - 0.5) < 0.001 for v in result)
 
     def test_no_correction_when_standby_loss_is_zero(self):
         """With standby_loss_kw=0, influxdb forecast is unmodified."""
@@ -82,13 +79,3 @@ class TestInfluxdbStandbyCorrection:
         result = _run_forecast(manager, kwh_value)
 
         assert all(abs(v - 0.5) < 0.001 for v in result)
-
-    def test_correction_floored_at_default_hourly(self):
-        """Correction is skipped for samples already at or near the configured baseline."""
-        # 0.3 kWh/qh - 0.075 = 0.225 < floor (0.25) → no subtraction, stays 0.3.
-        manager, kwh_value = _create_manager_with_influxdb(
-            kw_value=0.3, standby_loss_kw=0.3, default_hourly=1.0
-        )
-        result = _run_forecast(manager, kwh_value)
-
-        assert all(abs(v - 0.3) < 0.001 for v in result)

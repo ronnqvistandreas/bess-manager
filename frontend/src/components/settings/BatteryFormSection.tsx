@@ -100,9 +100,9 @@ export function BatteryFormSection({
               v => onChange({ ...form, standbyLossKw: v }),
               { unit: 'kW', min: 0, step: 0.01 })}
             <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
-              Fixed power drawn from stored energy while the pack is online above the reserve floor
-              (inverter/BMS overhead). Default 0 — set from your hold reading if the battery still
-              discharges at 0% discharge rate.
+              Inverter/BMS draw included in measured home load while the pack is above the reserve
+              floor. Solar covers it first; the pack is only debited when solar cannot. Default 0 —
+              set from the drop in the consumption sensor when the battery sits at the floor.
             </p>
             {toggle('Enable temperature derating', form.temperatureDeratingEnabled,
               v => onChange({ ...form, temperatureDeratingEnabled: v }))}

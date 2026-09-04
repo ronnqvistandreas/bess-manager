@@ -1,8 +1,5 @@
-"""SOLAR_EXPORT strategic intent: optimizer exports solar rather than storing it.
-
-When the cost of keeping energy in the battery (standby drain, cycle cost) exceeds
-the value of discharging it later, the optimizer should prefer exporting solar
-immediately at sell price over storing it for a later period.
+"""SOLAR_EXPORT strategic intent: hold at the reserve floor so night/low-solar
+standby is not drawn from the pack. Excess solar is exported rather than stored.
 """
 
 import pytest
@@ -95,6 +92,30 @@ class TestSolarExportChosen:
         )
         assert export_period.energy.battery_soe_start == pytest.approx(floor)
         assert export_period.energy.battery_soe_end == pytest.approx(floor)
+
+    def test_solar_export_above_floor_does_not_drain_when_solar_covers_home(self):
+        """Sunny surplus covers AC including standby; SOLAR_EXPORT must not bleed the pack."""
+        settings = _settings(standby_loss_kw=0.3, cycle_cost_per_kwh=10.0)
+
+        result = optimize_battery_schedule(
+            buy_price=[1.0, 1.0],
+            sell_price=[1.0, 1.0],
+            home_consumption=[0.5, 0.5],
+            solar_production=[2.0, 0.0],
+            initial_soe=5.0,
+            battery_settings=settings,
+            period_duration_hours=1.0,
+        )
+
+        export_period = next(
+            p
+            for p in result.period_data
+            if p.decision.strategic_intent == "SOLAR_EXPORT"
+        )
+        assert export_period.energy.battery_discharged == pytest.approx(0.0)
+        assert export_period.energy.battery_soe_end == pytest.approx(
+            export_period.energy.battery_soe_start
+        )
 
 
 class TestSolarExportNotChosen:

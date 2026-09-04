@@ -8,8 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
-- **`standbyLossKw` battery setting** — models fixed pack-side drain while the battery is online above the reserve floor (inverter/BMS overhead). Default `0` (no change for existing installs). Applied in the DP optimizer and recorded as parasitic battery discharge without inflating grid import.
+- **`standbyLossKw` battery setting** — models inverter/BMS draw as an AC-side load included in measured home consumption while the pack is above the reserve floor. Solar covers it first; the pack is only debited when solar cannot. Default `0` (no change for existing installs). Used for SOE-aware DP consumption and floor-hold (`SOLAR_EXPORT`) at night/low solar.
 - **Solar load-support override** — when live PV production is at or above `solarPvMinWatts` (default 100 W) and total home load exceeds `solarDischargeLoadMultiplier` times the predicted consumption for the current 15-minute slot, the battery discharge rate is forced to 100% regardless of the optimizer's schedule. Falls back to `defaultHourly` as the baseline until the first prediction fetch completes. Designed for EV-charging or high-load events where stored solar should be used instead of importing from the grid. Discharge inhibit always takes priority. Both thresholds are configurable in Settings → Home. Degrades silently if the PV sensor or phase current sensors are unavailable.
+
+### Fixed
+
+- **Sunny IDLE no longer predicts fake standby discharge** — with solar covering home load (including inverter overhead), predicted `battery_discharged` stays at 0 and the pack does not bleed. Night/low-solar drain above the reserve floor is unchanged. Consumption forecasts use raw sensor values; the DP subtracts standby only when simulated SOE is at the floor.
 
 ## [9.4.0] - 2026-06-12
 

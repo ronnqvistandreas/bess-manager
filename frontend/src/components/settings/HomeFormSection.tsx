@@ -59,6 +59,10 @@ export function HomeFormSection({ form, onChange, sensors }: Props) {
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Always uses the value below — no sensor required.</p>
             {numField('Default Hourly Consumption', form.consumption,
               v => onChange({ ...form, consumption: v }), { unit: 'kWh', min: 0, step: 0.1 })}
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Active (above-floor) consumption including inverter standby. Floor-period readings
+              are lower and are handled automatically — do not enter the at-floor value here.
+            </p>
           </div>
         )}
         {form.consumptionStrategy === 'sensor' && (

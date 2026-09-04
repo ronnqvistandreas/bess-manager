@@ -318,11 +318,9 @@ class TestHAStatisticsDispatch:
         assert all(v == 4.0 / 4.0 for v in result)
 
 
-class TestStandbyLossCorrection:
-    """Historical consumption data includes the inverter standby draw.
-    When standby_loss_kw > 0, the forecast must subtract it from each
-    quarter-hour sample so the optimizer sees the true home load, not
-    the inflated figure that includes the 300 W inverter overhead.
+class TestStandbyLossNotSubtractedFromForecast:
+    """Consumption forecasts use raw sensor values. Standby is handled inside
+    the DP via SOE-aware home_consumption, not by subtracting from history.
     """
 
     def _manager_with_standby(
@@ -334,11 +332,11 @@ class TestStandbyLossCorrection:
         stat_id = "sensor.load_energy_total"
         manager = _create_manager_with_stats(controller, {stat_id: stats})
         manager.battery_settings.standby_loss_kw = standby_loss_kw
-        manager.home_settings.default_hourly = 1.0  # floor well below historical
+        manager.home_settings.default_hourly = 1.0
         return manager
 
-    def test_standby_loss_subtracted_from_ha_statistics_forecast(self):
-        """With standby_loss_kw=0.3, each quarter-hour value is 0.075 kWh lower."""
+    def test_ha_statistics_forecast_keeps_raw_sensor_values(self):
+        """standby_loss_kw must not be subtracted from HA statistics samples."""
         manager = self._manager_with_standby(standby_loss_kw=0.3, hourly_kwh=2.0)
 
         with patch("core.bess.battery_system_manager.time_utils") as mock_tu:
@@ -346,8 +344,8 @@ class TestStandbyLossCorrection:
             mock_tu.TIMEZONE = TIMEZONE
             result = manager._get_ha_statistics_forecast()
 
-        # 2.0 kWh/h → 0.5 kWh/qh. Subtract 0.3 kW × 0.25 h = 0.075 → 0.425 kWh/qh
-        assert all(abs(v - 0.425) < 0.001 for v in result)
+        # 2.0 kWh/h → 0.5 kWh/qh, unmodified
+        assert all(abs(v - 0.5) < 0.001 for v in result)
 
     def test_no_correction_when_standby_loss_is_zero(self):
         """With standby_loss_kw=0, forecast is unmodified."""
@@ -359,24 +357,3 @@ class TestStandbyLossCorrection:
             result = manager._get_ha_statistics_forecast()
 
         assert all(abs(v - 0.5) < 0.001 for v in result)
-
-    def test_correction_floored_at_default_hourly_per_quarter(self):
-        """If subtracting would go below default_hourly/4, leave the value unchanged.
-
-        A low historical sample indicates the battery was at its reserve floor
-        during that period — the 300 W drain was not present.
-        """
-        # Historical = 1.0 kWh/h → 0.25 kWh/qh.
-        # standby_loss = 0.3 kW → 0.075 kWh/qh.
-        # default_hourly = 1.0 kWh/h → floor = 0.25 kWh/qh.
-        # 0.25 - 0.075 = 0.175 < 0.25 → should leave as 0.25 (unchanged).
-        manager = self._manager_with_standby(standby_loss_kw=0.3, hourly_kwh=1.0)
-        manager.home_settings.default_hourly = 1.0  # floor = 0.25 kWh/qh
-
-        with patch("core.bess.battery_system_manager.time_utils") as mock_tu:
-            mock_tu.today.return_value = datetime(2026, 5, 12, tzinfo=TIMEZONE).date()
-            mock_tu.TIMEZONE = TIMEZONE
-            result = manager._get_ha_statistics_forecast()
-
-        # Subtraction would produce 0.175 which is below floor (0.25) → no change
-        assert all(abs(v - 0.25) < 0.001 for v in result)

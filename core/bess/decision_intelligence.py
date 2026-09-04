@@ -428,8 +428,8 @@ def classify_strategic_intent(
     Args:
         power: Battery power action (+ charge, - discharge) in kW.
         energy_data: Complete energy flow data for the period.
-        standby_drain_kwh: Pack-side parasitic drain included in battery_discharged
-            but not strategic discharge to home/grid.
+        standby_drain_kwh: Pack debit for AC-side inverter standby included in
+            battery_discharged but not a strategic discharge to home/grid.
 
     Returns:
         One of: GRID_CHARGING, SOLAR_STORAGE, LOAD_SUPPORT, EXPORT_ARBITRAGE, IDLE.

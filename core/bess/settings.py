@@ -54,7 +54,7 @@ BATTERY_MIN_ACTION_PROFIT_THRESHOLD = (
 BATTERY_DEFAULT_CHARGING_POWER_RATE = 40  # percentage
 BATTERY_EFFICIENCY_CHARGE = 0.97  # Mix of solar (98%) and grid (95%) charging
 BATTERY_EFFICIENCY_DISCHARGE = 0.95  # DC-AC conversion losses
-BATTERY_STANDBY_LOSS_KW = 0.0  # Fixed pack-side drain while online above reserve
+BATTERY_STANDBY_LOSS_KW = 0.0  # AC-side inverter load while pack is above reserve
 
 # Default LFP temperature derating curve: (temp_celsius, charge_rate_percent)
 # Based on LFP battery characteristics (Battery University, manufacturer data)

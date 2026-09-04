@@ -1,4 +1,4 @@
-"""Standby loss: fixed pack-side drain while the battery is online above reserve."""
+"""Standby loss: AC-side inverter load; pack debit only when solar cannot cover it."""
 
 import pytest
 
@@ -23,6 +23,68 @@ def _battery_settings(**kwargs) -> BatterySettings:
     }
     defaults.update(kwargs)
     return BatterySettings(**defaults)
+
+
+def test_at_floor_home_consumption_excludes_standby():
+    """At minSoe the sensor reads ~standbyLossKw less; DP must use that load."""
+    settings = _battery_settings(
+        standby_loss_kw=0.3,
+        min_action_profit_threshold=999.0,
+    )
+
+    result = optimize_battery_schedule(
+        buy_price=[1.0],
+        sell_price=[0.5],
+        home_consumption=[1.0],
+        solar_production=[0.0],
+        initial_soe=settings.min_soe_kwh,
+        battery_settings=settings,
+        period_duration_hours=1.0,
+    )
+
+    period = result.period_data[0]
+    assert period.energy.home_consumption == pytest.approx(0.7)
+    assert period.energy.battery_discharged == pytest.approx(0.0)
+    assert period.energy.battery_soe_end == pytest.approx(settings.min_soe_kwh)
+
+
+def test_sunny_idle_does_not_discharge_standby_from_pack():
+    """High solar covering measured load (including standby) leaves the pack flat."""
+    settings = _battery_settings(
+        standby_loss_kw=0.3,
+        min_action_profit_threshold=999.0,
+    )
+
+    result = optimize_battery_schedule(
+        buy_price=[1.0],
+        sell_price=[0.5],
+        home_consumption=[0.832],
+        solar_production=[8.0],
+        initial_soe=10.0,
+        battery_settings=settings,
+        period_duration_hours=1.0,
+    )
+
+    period = result.period_data[0]
+    assert period.energy.battery_discharged == pytest.approx(0.0, abs=1e-6)
+    assert period.energy.battery_soe_end >= period.energy.battery_soe_start
+
+
+def test_idle_pack_debit_capped_by_solar_deficit():
+    """Pack covers only the AC deficit up to standbyLossKw, not a flat 0.3 kW bleed."""
+    settings = _battery_settings(standby_loss_kw=0.3)
+
+    next_soe, standby_drain = _state_transition(
+        soe=10.0,
+        power=0.0,
+        battery_settings=settings,
+        dt=1.0,
+        solar_production=0.75,
+        home_consumption=0.832,
+    )
+
+    assert standby_drain == pytest.approx(0.082)
+    assert next_soe == pytest.approx(9.918)
 
 
 def test_idle_hold_drains_soe_when_standby_loss_configured():
@@ -93,6 +155,61 @@ def test_standby_loss_capped_by_usable_energy_above_reserve():
     assert next_soe == pytest.approx(settings.min_soe_kwh)
 
 
+def test_discharge_does_not_add_extra_standby_debit():
+    """Strategic discharge already serves AC load including standby; no extra bleed."""
+    settings = _battery_settings(standby_loss_kw=0.3)
+    dt = 1.0
+    soe = 10.0
+    power = -1.0
+
+    next_soe, standby_drain = _state_transition(
+        soe=soe,
+        power=power,
+        battery_settings=settings,
+        dt=dt,
+        solar_production=0.0,
+        home_consumption=1.0,
+    )
+
+    expected_soe = soe - abs(power) * dt / settings.efficiency_discharge
+    assert standby_drain == pytest.approx(0.0)
+    assert next_soe == pytest.approx(expected_soe)
+
+
+def test_night_idle_pack_standby_is_not_double_counted_as_grid_import():
+    """AC-side standby served from the pack must not also appear as grid import."""
+    settings = _battery_settings(standby_loss_kw=0.3)
+    dt = 1.0
+    soe = 10.0
+
+    next_soe, standby_drain = _state_transition(
+        soe=soe,
+        power=0.0,
+        battery_settings=settings,
+        dt=dt,
+        solar_production=0.0,
+        home_consumption=1.0,
+    )
+    period = _build_period_data(
+        power=0.0,
+        soe=soe,
+        next_soe=next_soe,
+        standby_drain_kwh=standby_drain,
+        period=0,
+        home_consumption=1.0,
+        battery_settings=settings,
+        dt=dt,
+        buy_price=[2.0],
+        sell_price=[1.0],
+        solar_production=0.0,
+        new_cost_basis=0.5,
+        currency="SEK",
+    )
+
+    assert period.energy.battery_discharged == pytest.approx(0.3)
+    assert period.energy.grid_imported == pytest.approx(0.7)
+
+
 def test_grid_charge_standby_comes_from_pack_not_grid():
     """Parasitic standby during grid charge is pack-side, not extra grid import."""
     settings = _battery_settings(standby_loss_kw=0.3)
@@ -126,7 +243,7 @@ def test_grid_charge_standby_comes_from_pack_not_grid():
     )
 
     assert period.energy.battery_discharged == pytest.approx(0.3)
-    assert period.energy.grid_imported == pytest.approx(6.0)
+    assert period.energy.grid_imported == pytest.approx(5.7)
 
 
 def test_battery_settings_accepts_standby_loss_kw_via_camel_case():

@@ -69,7 +69,7 @@ class InverterController(ABC):
         "LOAD_SUPPORT": "Using battery to support home consumption",
         "EXPORT_ARBITRAGE": "Selling stored energy to grid for profit",
         "IDLE": "No significant battery activity",
-        "SOLAR_EXPORT": "Exporting solar to grid; holding battery at floor",
+        "SOLAR_EXPORT": "Exporting solar; holding at floor to skip night/low-solar standby",
     }
 
     # ── Platform capabilities ──────────────────────────────────────────────
