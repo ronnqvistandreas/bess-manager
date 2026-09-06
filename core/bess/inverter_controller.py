@@ -23,7 +23,7 @@ class InverterController(ABC):
     Strategic Intent → Control Mapping:
     - GRID_CHARGING   → grid_charge=True,  charge_rate=100, discharge_rate=0
     - SOLAR_STORAGE   → grid_charge=False, charge_rate=100, discharge_rate=100
-    - LOAD_SUPPORT    → grid_charge=False, charge_rate=0,   discharge_rate=100
+    - LOAD_SUPPORT    → grid_charge=False, charge_rate=100, discharge_rate=100
     - EXPORT_ARBITRAGE → grid_charge=False, charge_rate=0,  discharge_rate=<action-derived>
     - IDLE            → grid_charge=False, charge_rate=100, discharge_rate=0
     - SOLAR_EXPORT    → grid_charge=False, charge_rate=0,   discharge_rate=100  (grid_first mode)
@@ -38,7 +38,7 @@ class InverterController(ABC):
             "charge_rate": 100,
             "discharge_rate": 100,
         },
-        "LOAD_SUPPORT": {"grid_charge": False, "charge_rate": 0, "discharge_rate": 100},
+        "LOAD_SUPPORT": {"grid_charge": False, "charge_rate": 100, "discharge_rate": 100},
         "EXPORT_ARBITRAGE": {
             "grid_charge": False,
             "charge_rate": 0,

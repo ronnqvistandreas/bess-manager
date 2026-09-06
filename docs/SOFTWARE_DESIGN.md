@@ -331,7 +331,7 @@ The InverterController converts action intents into hardware-specific schedules.
 |---|---|---|---|---|
 | GRID_CHARGING | battery_first | On | 100% | 0% |
 | SOLAR_STORAGE | load_first | Off | 100% | 0% |
-| LOAD_SUPPORT | load_first | Off | 0% | 100% |
+| LOAD_SUPPORT | load_first | Off | 100% | 100% |
 | EXPORT_ARBITRAGE | grid_first | Off | 0% | 100% |
 | IDLE | load_first | Off | 100% | 0% |
 

@@ -96,10 +96,10 @@ class GrowattMinController(InverterController):
       Uses load_first so solar serves home directly. discharge=100 allows the inverter
       to draw from battery whenever load exceeds solar, without importing from grid.
 
-    LOAD_SUPPORT (load_first, grid_charge=False, charge=0, discharge=100):
+    LOAD_SUPPORT (load_first, grid_charge=False, charge=100, discharge=100):
       Purpose: Discharge stored energy to offset expensive grid consumption.
-      Flow: Battery → home. Solar → home. Grid covers remainder if needed.
-      Battery does not charge — energy is being spent, not accumulated.
+      Flow: Solar → home first, excess solar → battery. Battery → home when load
+      exceeds solar. Grid covers remainder if needed.
 
     EXPORT_ARBITRAGE (grid_first, grid_charge=False, charge=0, discharge=100):
       Purpose: Export stored energy to grid during high sell-price hours.

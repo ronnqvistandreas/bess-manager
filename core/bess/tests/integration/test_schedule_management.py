@@ -379,7 +379,7 @@ class TestScheduleValidation:
 class TestChargeRateHardwareWrite:
     """Charge rate must be written to the inverter register unconditionally.
 
-    Bug scenario: a LOAD_SUPPORT or EXPORT_ARBITRAGE period sets charge_rate=0
+    Bug scenario: an EXPORT_ARBITRAGE period sets charge_rate=0
     on the inverter. A subsequent SOLAR_STORAGE period (load_first mode) must
     overwrite that register with 100% — otherwise the inverter runs in
     load_first with 0% charge power and exports excess solar instead of
@@ -444,8 +444,8 @@ class TestChargeRateHardwareWrite:
             mock_controller.calls["charge_rate"][-1] == 100
         ), f"GRID_CHARGING charge_rate must be 100, got {mock_controller.calls['charge_rate'][-1]}"
 
-    def test_load_support_writes_charge_rate_0(self, battery_system, mock_controller):
-        """LOAD_SUPPORT must write charge_rate=0 (discharge-only mode)."""
+    def test_load_support_writes_charge_rate_100(self, battery_system, mock_controller):
+        """LOAD_SUPPORT must write charge_rate=100 so excess solar can charge the battery."""
         assert battery_system._power_monitor is None
 
         self._inject_intent(battery_system, "LOAD_SUPPORT", hour=19)
@@ -460,29 +460,29 @@ class TestChargeRateHardwareWrite:
             "charge_rate"
         ], "LOAD_SUPPORT must write charge_rate to inverter"
         assert (
-            mock_controller.calls["charge_rate"][-1] == 0
-        ), f"LOAD_SUPPORT charge_rate must be 0, got {mock_controller.calls['charge_rate'][-1]}"
+            mock_controller.calls["charge_rate"][-1] == 100
+        ), f"LOAD_SUPPORT charge_rate must be 100, got {mock_controller.calls['charge_rate'][-1]}"
 
-    def test_stale_zero_overwritten_when_solar_storage_follows_load_support(
+    def test_stale_zero_overwritten_when_solar_storage_follows_export_arbitrage(
         self, battery_system, mock_controller
     ):
         """Regression: solar is exported instead of stored after a discharge period.
 
-        Sequence: LOAD_SUPPORT (leaves charge_rate=0) → SOLAR_STORAGE.
+        Sequence: EXPORT_ARBITRAGE (leaves charge_rate=0) → SOLAR_STORAGE.
         Without the fix, charge_rate stays 0 and the inverter exports solar.
         With the fix, SOLAR_STORAGE overwrites it with 100.
         """
         assert battery_system._power_monitor is None
 
-        # Period 1: LOAD_SUPPORT sets charge_rate=0
-        self._inject_intent(battery_system, "LOAD_SUPPORT", hour=18)
+        # Period 1: EXPORT_ARBITRAGE sets charge_rate=0
+        self._inject_intent(battery_system, "EXPORT_ARBITRAGE", hour=18)
         with patch("core.bess.battery_system_manager.time_utils.now") as mock_now:
             mock_now.return_value.hour = 18
             mock_now.return_value.minute = 0
             battery_system._apply_period_schedule(72)
 
-        charge_after_load_support = mock_controller.calls["charge_rate"][-1]
-        assert charge_after_load_support == 0
+        charge_after_export = mock_controller.calls["charge_rate"][-1]
+        assert charge_after_export == 0
 
         # Period 2: SOLAR_STORAGE must overwrite the stale 0
         self._inject_intent(battery_system, "SOLAR_STORAGE", hour=12)
@@ -495,8 +495,8 @@ class TestChargeRateHardwareWrite:
 
         assert mock_controller.calls[
             "charge_rate"
-        ], "SOLAR_STORAGE must write charge_rate after LOAD_SUPPORT"
+        ], "SOLAR_STORAGE must write charge_rate after EXPORT_ARBITRAGE"
         assert mock_controller.calls["charge_rate"][-1] == 100, (
             "SOLAR_STORAGE must reset charge_rate to 100 — stale 0 from "
-            f"LOAD_SUPPORT was not overwritten: {mock_controller.calls['charge_rate']}"
+            f"EXPORT_ARBITRAGE was not overwritten: {mock_controller.calls['charge_rate']}"
         )
