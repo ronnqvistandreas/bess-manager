@@ -42,6 +42,8 @@ WORKDIR /app
 
 COPY backend/app.py backend/api.py backend/api_conversion.py backend/api_dataclasses.py backend/ai_chat.py backend/log_config.py backend/settings_store.py backend/requirements.txt ./
 
+COPY backend/llm/ /app/llm/
+
 COPY core/ /app/core/
 
 COPY docs/agents/bess-knowledge.md /app/agents/bess-knowledge.md
