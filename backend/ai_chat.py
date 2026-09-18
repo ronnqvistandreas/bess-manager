@@ -19,7 +19,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import anthropic
+from llm.config import resolve_provider_config
+from llm.factory import get_provider
 
 logger = logging.getLogger(__name__)
 
@@ -54,84 +55,6 @@ _BLOCKED_PATTERNS = (
     "*credentials*",
     "*secret*",
 )
-
-# ---------------------------------------------------------------------------
-# Tool definitions (Claude API format)
-# ---------------------------------------------------------------------------
-
-_TOOLS = [
-    {
-        "name": "read_file",
-        "description": (
-            "Read a source file from the BESS Manager codebase.  Returns the "
-            "file contents with line numbers.  For large files, use start_line "
-            "and end_line to read a specific range."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": (
-                        "Relative path from the project root, e.g. "
-                        "'core/bess/dp_battery_algorithm.py' or 'backend/api.py'."
-                    ),
-                },
-                "start_line": {
-                    "type": "integer",
-                    "description": "First line to read (1-based).  Omit to start from line 1.",
-                },
-                "end_line": {
-                    "type": "integer",
-                    "description": "Last line to read (1-based).  Omit to read to end of file.",
-                },
-            },
-            "required": ["path"],
-        },
-    },
-    {
-        "name": "search_code",
-        "description": (
-            "Search the BESS Manager codebase for a regex pattern.  Returns "
-            "matching lines with file paths and line numbers.  Use to find "
-            "functions, variables, error messages, or trace code paths."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "pattern": {
-                    "type": "string",
-                    "description": "Regex pattern to search for, e.g. 'cost_basis' or 'def optimize_.*schedule'.",
-                },
-                "file_glob": {
-                    "type": "string",
-                    "description": "Optional glob to filter files, e.g. '*.py' or 'core/bess/*.py'.  Default: '*.py'.",
-                },
-            },
-            "required": ["pattern"],
-        },
-    },
-    {
-        "name": "list_files",
-        "description": (
-            "List source files in a directory of the BESS Manager codebase.  "
-            "Returns file names with sizes.  Useful for understanding project "
-            "structure before reading specific files."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": (
-                        "Relative directory path, e.g. 'core/bess/' or 'backend/'.  "
-                        "Omit or use '' for the project root."
-                    ),
-                },
-            },
-        },
-    },
-]
 
 # ---------------------------------------------------------------------------
 # Limits
@@ -220,6 +143,7 @@ class ChatSession:
     """In-memory chat session state."""
 
     session_id: str
+    provider: str = "anthropic"
     messages: list[dict] = field(default_factory=list)
     system_context: str = ""
     context_summary: str = ""
@@ -468,13 +392,16 @@ class AIAnalystService:
 
     def get_status(self) -> dict:
         """Return whether the AI analyst is configured and which model is active."""
-        cfg = self._get_config()
-        api_key = cfg.get("api_key", "")
-        return {
-            "configured": bool(api_key),
+        cfg = resolve_provider_config(self._get_config())
+        status = {
+            "configured": bool(cfg["api_key"]),
             "enabled": cfg.get("enabled", True),
-            "model": cfg.get("model", "claude-sonnet-4-20250514"),
+            "provider": cfg["provider"],
+            "model": cfg["model"],
         }
+        if cfg["provider"] == "google" and cfg.get("thinking_level"):
+            status["thinkingLevel"] = cfg["thinking_level"]
+        return status
 
     def start_session(self, system_manager) -> dict:
         """Create a new chat session with fresh system context.
@@ -489,9 +416,11 @@ class AIAnalystService:
 
         session_id = str(uuid.uuid4())
         context, summary = self._gather_context(system_manager)
+        cfg = resolve_provider_config(self._get_config())
 
         session = ChatSession(
             session_id=session_id,
+            provider=cfg["provider"],
             system_context=context,
             context_summary=summary,
         )
@@ -523,98 +452,84 @@ class AIAnalystService:
 
         session.last_active = time.time()
 
+        cfg = resolve_provider_config(self._get_config())
+        if session.provider != cfg["provider"]:
+            yield _sse_event(
+                "error",
+                {
+                    "error": "provider_changed",
+                    "message": "AI provider changed. Please start a new session.",
+                },
+            )
+            return
+
         # Add user message to history.
         session.messages.append({"role": "user", "content": user_message})
 
         # Trim conversation if too long.
         self._trim_messages(session)
 
-        cfg = self._get_config()
-        api_key = cfg.get("api_key", "")
-        if not api_key:
+        if not cfg["api_key"]:
             yield _sse_event(
                 "error",
                 {"error": "API key not configured. Go to Settings > AI Analyst."},
             )
             return
 
-        model = cfg.get("model", "claude-sonnet-4-20250514")
-        system_prompt = self._build_full_system_prompt(session.system_context)
+        system_prompt = self._build_full_system_prompt(
+            session.system_context, cfg["provider"]
+        )
+        provider = get_provider(
+            cfg["provider"],
+            cfg["api_key"],
+            cfg["model"],
+            thinking_level=cfg.get("thinking_level"),
+        )
 
         try:
-            client = anthropic.AsyncAnthropic(api_key=api_key)
             final_text = ""
 
             for _iteration in range(_MAX_TOOL_ITERATIONS):
-                # Stream the model response.
-                text_so_far = ""
-                response = None
+                turn_result = None
 
-                async with client.messages.stream(
-                    model=model,
-                    max_tokens=4096,
-                    system=system_prompt,
-                    tools=_TOOLS,
-                    messages=session.messages,
-                ) as stream:
-                    # Stream text deltas to the frontend as they arrive.
-                    async for event in stream:
-                        if hasattr(event, "type"):
-                            if event.type == "content_block_delta":
-                                if hasattr(event.delta, "text"):
-                                    text_so_far += event.delta.text
-                                    yield _sse_event(
-                                        "text_delta", {"text": event.delta.text}
-                                    )
+                async for event_type, data in provider.stream_turn(
+                    session.messages, system_prompt
+                ):
+                    if event_type == "text_delta":
+                        yield _sse_event("text_delta", {"text": data})
+                    elif event_type == "turn_complete":
+                        turn_result = data
 
-                    response = await stream.get_final_message()
+                if turn_result is None:
+                    yield _sse_event("error", {"error": "AI service returned no response."})
+                    return
 
-                # Check for tool use blocks.
-                tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
-
-                if not tool_use_blocks:
-                    # No tools requested — this is the final answer.
-                    final_text = text_so_far
+                if not turn_result.tool_calls:
+                    final_text = turn_result.text
                     break
 
-                # Model wants to use tools.  Serialize the full response
-                # (may contain both text and tool_use blocks) to messages.
-                assistant_content = []
-                for block in response.content:
-                    if block.type == "text":
-                        assistant_content.append({"type": "text", "text": block.text})
-                    elif block.type == "tool_use":
-                        assistant_content.append(
-                            {
-                                "type": "tool_use",
-                                "id": block.id,
-                                "name": block.name,
-                                "input": block.input,
-                            }
-                        )
                 session.messages.append(
-                    {"role": "assistant", "content": assistant_content}
+                    {"role": "assistant", "content": turn_result.assistant_content}
                 )
 
-                # Execute each tool and build results.
                 tool_results = []
-                for block in tool_use_blocks:
-                    # Notify frontend about tool activity.
+                for tool_call in turn_result.tool_calls:
                     yield _sse_event(
                         "tool_use",
-                        {"tool": block.name, "input": block.input},
+                        {"tool": tool_call.name, "input": tool_call.input},
                     )
                     logger.info(
                         "AI tool call: %s(%s)",
-                        block.name,
-                        json.dumps(block.input, default=str)[:200],
+                        tool_call.name,
+                        json.dumps(tool_call.input, default=str)[:200],
                     )
 
-                    result_str = _execute_tool(block.name, block.input)
+                    result_str = _execute_tool(tool_call.name, tool_call.input)
                     tool_results.append(
                         {
                             "type": "tool_result",
-                            "tool_use_id": block.id,
+                            "tool_use_id": tool_call.id,
+                            "name": tool_call.name,
                             "content": result_str,
                         }
                     )
@@ -622,7 +537,6 @@ class AIAnalystService:
                 session.messages.append({"role": "user", "content": tool_results})
 
             else:
-                # Hit the iteration limit.
                 yield _sse_event(
                     "text_delta",
                     {
@@ -631,29 +545,33 @@ class AIAnalystService:
                     },
                 )
 
-            # Store the final text in a simplified form for conversation
-            # history (collapse tool_use/tool_result pairs).
             if final_text:
                 session.messages.append({"role": "assistant", "content": final_text})
             yield _sse_event("done", {})
 
-        except anthropic.AuthenticationError:
-            yield _sse_event(
-                "error", {"error": "Invalid API key. Check Settings > AI Analyst."}
-            )
-        except anthropic.RateLimitError:
-            yield _sse_event(
-                "error",
-                {
-                    "error": "Rate limited by Claude API. Please wait a moment and try again."
-                },
-            )
-        except anthropic.APIError as e:
-            logger.error("Claude API error: %s", e)
-            yield _sse_event("error", {"error": f"AI service error: {e.message}"})
         except Exception as e:
             logger.exception("Unexpected error in AI chat stream: %s", e)
             yield _sse_event("error", {"error": "An unexpected error occurred."})
+
+    async def test_connection(self, overrides: dict | None = None) -> dict:
+        """Test connectivity for a provider using saved settings and optional overrides."""
+        section = self._get_config()
+        override_data = dict(overrides) if overrides else {}
+        provider_override = override_data.pop("provider", None)
+        cfg = resolve_provider_config(
+            section, provider=provider_override, overrides=override_data
+        )
+        if not cfg["api_key"]:
+            return {"ok": False, "message": "API key not configured."}
+
+        provider = get_provider(
+            cfg["provider"],
+            cfg["api_key"],
+            cfg["model"],
+            thinking_level=cfg.get("thinking_level"),
+        )
+        ok, message = await provider.test_connection()
+        return {"ok": ok, "message": message}
 
     def refresh_context(self, session_id: str, system_manager) -> dict:
         """Re-gather system context for an existing session.
@@ -702,14 +620,20 @@ class AIAnalystService:
         stripped = re.sub(r"\A---\n.*?\n---\n*", "", raw, count=1, flags=re.DOTALL)
         return stripped.strip()
 
-    def _build_full_system_prompt(self, context: str) -> list[dict]:
+    def _build_full_system_prompt(self, context: str, provider: str = "anthropic"):
         """Combine preamble + domain knowledge + live context.
 
-        Returns a list of content blocks for the ``system`` parameter.
-        The static portion (preamble + bess-knowledge.md) is marked with
-        cache_control for Anthropic prompt caching.
+        Returns Anthropic content blocks (with cache_control) or a plain
+        string for Google Gemini.
         """
         static = _PREAMBLE + self._system_prompt_base
+        context_block = (
+            "\n\n---\n\n# Current System State\n\n" + context if context else ""
+        )
+
+        if provider == "google":
+            return static + context_block
+
         blocks = [
             {
                 "type": "text",
@@ -721,7 +645,7 @@ class AIAnalystService:
             blocks.append(
                 {
                     "type": "text",
-                    "text": "\n\n---\n\n# Current System State\n\n" + context,
+                    "text": context_block,
                 }
             )
         return blocks

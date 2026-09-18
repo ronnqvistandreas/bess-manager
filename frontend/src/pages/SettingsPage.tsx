@@ -12,7 +12,7 @@ import { BatteryFormSection } from '../components/settings/BatteryFormSection';
 import type { BatteryForm } from '../components/settings/BatteryFormSection';
 import { SensorConfigSection } from '../components/settings/SensorConfigSection';
 import type { InverterForm } from '../components/settings/SensorConfigSection';
-import { AIAnalystSettings } from '../components/settings/AIAnalystSettings';
+import { AIAnalystSettings, EMPTY_AI_ANALYST_FORM } from '../components/settings/AIAnalystSettings';
 import type { AIAnalystForm } from '../components/settings/AIAnalystSettings';
 import { emptyPerPlatformSensors, getActiveSensorsFlat } from '../lib/sensorDefinitions';
 import type { PerPlatformSensors } from '../lib/sensorDefinitions';
@@ -74,7 +74,7 @@ const SettingsPage: React.FC = () => {
   const [pricingForm, setPricingForm] = useState<PricingForm>(EMPTY_PRICING);
   const [inverterForm, setInverterForm] = useState<InverterForm>(EMPTY_INVERTER);
   const [sensors, setSensors] = useState<PerPlatformSensors>(emptyPerPlatformSensors());
-  const [aiForm, setAiForm] = useState<AIAnalystForm>({ apiKey: '', model: 'claude-sonnet-4-20250514', enabled: true });
+  const [aiForm, setAiForm] = useState<AIAnalystForm>(EMPTY_AI_ANALYST_FORM);
 
   // ── saved snapshots (for dirty detection) ──────────────────────────────
   const savedBattery = useRef<string>('');
@@ -219,9 +219,17 @@ const SettingsPage: React.FC = () => {
 
       const ai_s = s.aiAnalyst ?? {};
       const ai: AIAnalystForm = {
-        apiKey: ai_s.apiKey ?? '',
-        model: ai_s.model ?? 'claude-sonnet-4-20250514',
+        provider: ai_s.provider ?? 'anthropic',
         enabled: ai_s.enabled ?? true,
+        anthropic: {
+          apiKey: ai_s.anthropic?.apiKey ?? ai_s.apiKey ?? '',
+          model: ai_s.anthropic?.model ?? ai_s.model ?? 'claude-sonnet-4-20250514',
+        },
+        google: {
+          apiKey: ai_s.google?.apiKey ?? '',
+          model: ai_s.google?.model ?? 'gemini-3.8-flash',
+          thinkingLevel: ai_s.google?.thinkingLevel ?? 'low',
+        },
       };
       setAiForm(ai);
       savedAi.current = JSON.stringify(ai);

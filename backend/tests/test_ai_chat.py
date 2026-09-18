@@ -79,22 +79,51 @@ class TestGetStatus:
         status = service.get_status()
         assert status["configured"] is False
         assert status["enabled"] is True
+        assert status["provider"] == "anthropic"
         assert "model" in status
 
-    def test_configured(self):
+    def test_configured_anthropic(self):
         service = _make_service(
             {
-                "api_key": "sk-ant-test",
-                "model": "claude-opus-4-20250514",
+                "provider": "anthropic",
                 "enabled": True,
+                "anthropic": {
+                    "api_key": "sk-ant-test",
+                    "model": "claude-opus-4-20250514",
+                },
             }
         )
         status = service.get_status()
         assert status["configured"] is True
+        assert status["provider"] == "anthropic"
         assert status["model"] == "claude-opus-4-20250514"
 
+    def test_configured_google(self):
+        service = _make_service(
+            {
+                "provider": "google",
+                "enabled": True,
+                "google": {
+                    "api_key": "AIza-test",
+                    "model": "gemini-3.8-flash",
+                    "thinking_level": "high",
+                },
+            }
+        )
+        status = service.get_status()
+        assert status["configured"] is True
+        assert status["provider"] == "google"
+        assert status["model"] == "gemini-3.8-flash"
+        assert status["thinkingLevel"] == "high"
+
     def test_disabled(self):
-        service = _make_service({"api_key": "sk-ant-test", "enabled": False})
+        service = _make_service(
+            {
+                "provider": "anthropic",
+                "anthropic": {"api_key": "sk-ant-test"},
+                "enabled": False,
+            }
+        )
         status = service.get_status()
         assert status["configured"] is True
         assert status["enabled"] is False
@@ -230,6 +259,22 @@ class TestStreamResponse:
         assert payload["type"] == "error"
         assert "api key" in payload["error"].lower()
 
+    def test_provider_changed(self):
+        service = _make_service(
+            {
+                "provider": "google",
+                "google": {"api_key": "AIza-test"},
+            }
+        )
+        session = ChatSession(session_id="s1", provider="anthropic")
+        service._sessions["s1"] = session
+
+        events = self._collect(service.stream_response("s1", "hello"))
+        assert len(events) == 1
+        payload = json.loads(events[0][len("data: ") :].strip())
+        assert payload["type"] == "error"
+        assert payload["error"] == "provider_changed"
+
 
 # ---------------------------------------------------------------------------
 # System prompt loading
@@ -255,12 +300,19 @@ class TestLoadSystemPrompt:
 
     def test_system_prompt_returns_list_with_cache_control(self):
         service = _make_service()
-        result = service._build_full_system_prompt("some context")
+        result = service._build_full_system_prompt("some context", provider="anthropic")
         assert isinstance(result, list)
         assert len(result) == 2
         assert result[0]["cache_control"] == {"type": "ephemeral"}
         assert "domain knowledge" in result[0]["text"]
         assert "some context" in result[1]["text"]
+
+    def test_system_prompt_google_is_plain_string(self):
+        service = _make_service()
+        result = service._build_full_system_prompt("some context", provider="google")
+        assert isinstance(result, str)
+        assert "domain knowledge" in result
+        assert "some context" in result
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +464,122 @@ class TestExecuteTool:
             len(result) <= _MAX_TOOL_RESULT_CHARS + 100
         )  # Allow for truncation message
         assert "truncated" in result
+
+
+# ---------------------------------------------------------------------------
+# Provider streaming (mocked SDKs)
+# ---------------------------------------------------------------------------
+
+
+class TestProviderStreaming:
+    def _collect(self, async_gen):
+        return asyncio.run(self._alist(async_gen))
+
+    @staticmethod
+    async def _alist(gen):
+        items = []
+        async for item in gen:
+            items.append(item)
+        return items
+
+    def test_anthropic_stream_turn_text_only(self):
+        from llm.anthropic_provider import AnthropicProvider
+        from llm.protocol import TurnResult
+
+        provider = AnthropicProvider("sk-test", "claude-sonnet-4-20250514")
+
+        class FakeDelta:
+            text = "Hello"
+
+        class FakeEvent:
+            type = "content_block_delta"
+            delta = FakeDelta()
+
+        class FakeBlock:
+            type = "text"
+            text = "Hello"
+
+        class FakeResponse:
+            content = [FakeBlock()]
+
+        class FakeStream:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            def __aiter__(self):
+                self._done = False
+                return self
+
+            async def __anext__(self):
+                if self._done:
+                    raise StopAsyncIteration
+                self._done = True
+                return FakeEvent()
+
+            async def get_final_message(self):
+                return FakeResponse()
+
+        class FakeMessages:
+            def stream(self, **kwargs):
+                return FakeStream()
+
+        class FakeClient:
+            messages = FakeMessages()
+
+        with patch(
+            "llm.anthropic_provider.anthropic.AsyncAnthropic", return_value=FakeClient()
+        ):
+            events = self._collect(
+                provider.stream_turn([{"role": "user", "content": "hi"}], "system")
+            )
+
+        assert ("text_delta", "Hello") in events
+        assert events[-1][0] == "turn_complete"
+        assert isinstance(events[-1][1], TurnResult)
+        assert events[-1][1].text == "Hello"
+
+
+# ---------------------------------------------------------------------------
+# test_connection
+# ---------------------------------------------------------------------------
+
+
+class TestTestConnection:
+    def test_missing_api_key(self):
+        service = _make_service()
+        result = asyncio.run(service.test_connection())
+        assert result["ok"] is False
+        assert "api key" in result["message"].lower()
+
+    def test_anthropic_success(self):
+        service = _make_service(
+            {
+                "provider": "anthropic",
+                "anthropic": {"api_key": "sk-ant-test", "model": "claude-sonnet-4-20250514"},
+            }
+        )
+        with patch("llm.anthropic_provider.AnthropicProvider.test_connection") as mock_test:
+            mock_test.return_value = (True, "Claude connection OK — model: claude-sonnet-4-20250514")
+            result = asyncio.run(service.test_connection())
+        assert result["ok"] is True
+
+    def test_google_with_overrides(self):
+        service = _make_service({"provider": "anthropic"})
+        with patch("llm.google_provider.GoogleProvider.test_connection") as mock_test:
+            mock_test.return_value = (True, "Gemini connection OK — model: gemini-3.8-flash")
+            result = asyncio.run(
+                service.test_connection(
+                    {
+                        "provider": "google",
+                        "google": {"api_key": "AIza-test", "thinking_level": "low"},
+                    }
+                )
+            )
+        assert result["ok"] is True
+        assert "Gemini" in result["message"]
 
 
 # ---------------------------------------------------------------------------

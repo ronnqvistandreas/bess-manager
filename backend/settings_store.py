@@ -585,6 +585,48 @@ class SettingsStore:
                 )
                 changed = True
 
+        ai_analyst = self.data.get("ai_analyst")
+        if isinstance(ai_analyst, dict):
+            # Migrate flat api_key/model → nested anthropic.* with provider field.
+            if "api_key" in ai_analyst or "model" in ai_analyst:
+                anthropic = dict(ai_analyst.get("anthropic", {}))
+                if "api_key" in ai_analyst and "api_key" not in anthropic:
+                    anthropic["api_key"] = ai_analyst.pop("api_key")
+                    changed = True
+                if "model" in ai_analyst and "model" not in anthropic:
+                    anthropic["model"] = ai_analyst.pop("model")
+                    changed = True
+                if anthropic:
+                    ai_analyst["anthropic"] = anthropic
+                if "provider" not in ai_analyst:
+                    ai_analyst["provider"] = "anthropic"
+                    changed = True
+                logger.info(
+                    "Schema migration: ai_analyst flat keys → nested anthropic config"
+                )
+
+            if "provider" not in ai_analyst:
+                ai_analyst["provider"] = "anthropic"
+                changed = True
+
+            google = ai_analyst.get("google")
+            if not isinstance(google, dict):
+                ai_analyst["google"] = {
+                    "model": "gemini-3.8-flash",
+                    "thinking_level": "low",
+                }
+                changed = True
+            else:
+                if "model" not in google:
+                    google["model"] = "gemini-3.8-flash"
+                    changed = True
+                if "thinking_level" not in google:
+                    google["thinking_level"] = "low"
+                    changed = True
+
+            if changed:
+                self.data["ai_analyst"] = ai_analyst
+
         if changed:
             self._write(self.data)
 

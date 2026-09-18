@@ -534,3 +534,25 @@ class TestSchemaMigration:
         home = store.get_section("home")
         assert "consumption" not in home
         assert "safety_margin_factor" not in home
+
+    def test_ai_analyst_flat_keys_migrated_to_nested(self, tmp_path, monkeypatch):
+        """Flat api_key/model must move to anthropic.* with provider set."""
+        store = self._store_with_data(
+            tmp_path,
+            monkeypatch,
+            {
+                "ai_analyst": {
+                    "api_key": "sk-ant-old",
+                    "model": "claude-sonnet-4-20250514",
+                    "enabled": True,
+                }
+            },
+        )
+        ai = store.get_section("ai_analyst")
+        assert ai["provider"] == "anthropic"
+        assert ai["anthropic"]["api_key"] == "sk-ant-old"
+        assert ai["anthropic"]["model"] == "claude-sonnet-4-20250514"
+        assert "api_key" not in ai
+        assert "model" not in ai
+        assert ai["google"]["model"] == "gemini-3.8-flash"
+        assert ai["google"]["thinking_level"] == "low"

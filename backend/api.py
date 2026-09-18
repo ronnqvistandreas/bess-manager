@@ -2639,6 +2639,14 @@ async def ai_chat_status():
     return service.get_status()
 
 
+@router.post("/api/ai/chat/test")
+async def ai_chat_test(body: dict | None = None):
+    """Test AI provider connectivity with optional draft settings overrides."""
+    service, _ = _get_ai_service()
+    overrides = convert_keys_to_snake_case(body) if body else None
+    return await service.test_connection(overrides)
+
+
 @router.post("/api/ai/chat/start")
 async def ai_chat_start():
     """Start a new AI chat session with fresh system context."""
