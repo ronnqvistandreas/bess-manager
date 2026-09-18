@@ -1,5 +1,6 @@
 """Google Gemini provider for AI Analyst."""
 
+import base64
 import logging
 import uuid
 from collections.abc import AsyncIterator
@@ -50,14 +51,16 @@ def _messages_to_gemini_contents(messages: list[dict]) -> list[types.Content]:
                 if block.get("type") == "text":
                     parts.append(types.Part(text=block.get("text", "")))
                 elif block.get("type") == "tool_use":
-                    parts.append(
-                        types.Part(
-                            function_call=types.FunctionCall(
-                                name=block["name"],
-                                args=block.get("input", {}),
-                            )
+                    part_kwargs: dict[str, Any] = {
+                        "function_call": types.FunctionCall(
+                            name=block["name"],
+                            args=block.get("input", {}),
                         )
-                    )
+                    }
+                    sig = block.get("thought_signature")
+                    if sig:
+                        part_kwargs["thought_signature"] = sig
+                    parts.append(types.Part(**part_kwargs))
             if parts:
                 contents.append(types.Content(role="model", parts=parts))
         elif role == "user" and isinstance(content, list):
@@ -119,6 +122,7 @@ class GoogleProvider:
         text_so_far = ""
         tool_calls: list[ToolCall] = []
         assistant_content: list[dict] = []
+        seen_tool_keys: set[str] = set()
 
         async for chunk in await self._client.aio.models.generate_content_stream(
             model=self._model,
@@ -129,20 +133,35 @@ class GoogleProvider:
                 text_so_far += chunk.text
                 yield ("text_delta", chunk.text)
 
-            for fc in chunk.function_calls or []:
-                if not fc.name:
+            candidate = chunk.candidates[0] if chunk.candidates else None
+            parts = (
+                candidate.content.parts
+                if candidate and candidate.content and candidate.content.parts
+                else []
+            )
+            for part in parts:
+                fc = part.function_call
+                if not fc or not fc.name:
                     continue
                 call_id = fc.id or str(uuid.uuid4())
+                dedup_key = call_id if fc.id else f"{fc.name}:{fc.args}"
+                if dedup_key in seen_tool_keys:
+                    continue
+                seen_tool_keys.add(dedup_key)
+
                 args = dict(fc.args) if fc.args else {}
                 tool_calls.append(ToolCall(id=call_id, name=fc.name, input=args))
-                assistant_content.append(
-                    {
-                        "type": "tool_use",
-                        "id": call_id,
-                        "name": fc.name,
-                        "input": args,
-                    }
-                )
+                tool_block: dict[str, Any] = {
+                    "type": "tool_use",
+                    "id": call_id,
+                    "name": fc.name,
+                    "input": args,
+                }
+                if part.thought_signature is not None:
+                    tool_block["thought_signature"] = base64.b64encode(
+                        part.thought_signature
+                    ).decode()
+                assistant_content.append(tool_block)
 
         if text_so_far:
             assistant_content.insert(0, {"type": "text", "text": text_so_far})
