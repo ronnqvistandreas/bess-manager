@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, ClassVar
 
 from . import time_utils
+from .daily_savings_store import DailySavingsStore, build_daily_savings_record
 from .daily_view_builder import DailyView, DailyViewBuilder
 from .dp_battery_algorithm import (
     OptimizationResult,
@@ -102,6 +103,7 @@ class BatterySystemManager:
         self.historical_store = HistoricalDataStore(self.battery_settings)
         self.schedule_store = ScheduleStore()
         self.prediction_snapshot_store = PredictionSnapshotStore()
+        self.daily_savings_store = DailySavingsStore()
 
         # Initialize specialized components
         self.sensor_collector = SensorCollector(controller, self.battery_settings)
@@ -477,6 +479,8 @@ class BatterySystemManager:
         is_first_run = self._current_schedule is None
 
         try:
+            self._finalize_daily_savings_if_needed()
+
             # Handle special cases (midnight, next day prep)
             self._handle_special_cases(current_period, prepare_next_day)
 
@@ -1238,6 +1242,38 @@ class BatterySystemManager:
 
         return quarterly_profile
 
+    def _finalize_daily_savings_if_needed(self) -> None:
+        """Finalize the previous day's savings when the calendar rolls over."""
+        store_date = self.historical_store.store_date
+        if store_date is None or self.historical_store.get_stored_count() == 0:
+            return
+
+        if store_date >= time_utils.today():
+            return
+
+        periods = [
+            self.historical_store.get_period(period_index)
+            for period_index in range(get_period_count(store_date))
+        ]
+        record = build_daily_savings_record(
+            store_date=store_date,
+            periods=periods,
+            prediction_snapshots=self.prediction_snapshot_store.get_all_snapshots(),
+            currency=self.home_settings.currency,
+        )
+        if record is None:
+            logger.info(
+                "Skipping daily savings finalization for %s: no actual periods",
+                store_date,
+            )
+            self.historical_store.clear()
+            self.prediction_snapshot_store.clear()
+            return
+
+        self.daily_savings_store.save_record(record)
+        self.historical_store.clear()
+        self.prediction_snapshot_store.clear()
+
     def _handle_special_cases(self, period: int, prepare_next_day: bool) -> None:
         """Handle special cases like midnight transition."""
         if period == 0 and not prepare_next_day:
@@ -1256,12 +1292,7 @@ class BatterySystemManager:
                 logger.warning(f"Failed to get initial SOC: {e}")
 
         if prepare_next_day:
-            logger.info(
-                "Preparing for next day - clearing historical store and refreshing predictions"
-            )
-            # Clear historical store to prevent yesterday's data from appearing as today's future data
-            self.historical_store.clear()
-            self.prediction_snapshot_store.clear()
+            logger.info("Preparing for next day - refreshing predictions")
             self._fetch_predictions()
 
     def _get_price_data(

@@ -5,6 +5,7 @@ Only stores today's data in memory.
 """
 
 import logging
+from datetime import date
 
 from core.bess import time_utils
 from core.bess.models import PeriodData
@@ -29,6 +30,7 @@ class HistoricalDataStore:
         """
         # Simple storage: period_index → PeriodData
         self._records: dict[int, PeriodData] = {}
+        self._date: date | None = None
 
         # Store battery settings reference for SOC calculations
         self.battery_settings = battery_settings
@@ -54,6 +56,9 @@ class HistoricalDataStore:
                 f"Period index {period_index} out of range for today "
                 f"(0-{today_periods-1})"
             )
+
+        if self._date is None:
+            self._date = today
 
         # Store
         self._records[period_index] = period_data
@@ -89,12 +94,18 @@ class HistoricalDataStore:
         # Return list with data if available, None otherwise
         return [self._records.get(i) for i in range(num_periods)]
 
+    @property
+    def store_date(self) -> date | None:
+        """Calendar date for stored periods, set on first record."""
+        return self._date
+
     def clear(self) -> None:
         """Clear all stored data.
 
         Useful for testing or daily reset.
         """
         self._records.clear()
+        self._date = None
         logger.info("Cleared all historical data")
 
     def get_stored_count(self) -> int:

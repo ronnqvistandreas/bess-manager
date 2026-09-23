@@ -122,6 +122,39 @@ class APIPredictionSnapshot:
 
 
 @dataclass
+class APIDailySavingsRecord:
+    """API representation of a finalized daily savings record."""
+
+    date: str
+    gridOnlyCost: float
+    solarOnlyCost: float
+    optimizedCost: float
+    totalSavings: float
+    solarSavings: float
+    batteryContribution: float
+    predictedTotalSavings: float
+    periodCount: int
+    complete: bool
+    finalizedAt: str
+
+    @classmethod
+    def from_internal(cls, record) -> APIDailySavingsRecord:
+        return cls(
+            date=record.date.isoformat(),
+            gridOnlyCost=record.grid_only_cost,
+            solarOnlyCost=record.solar_only_cost,
+            optimizedCost=record.optimized_cost,
+            totalSavings=record.total_savings,
+            solarSavings=record.solar_savings,
+            batteryContribution=record.battery_contribution,
+            predictedTotalSavings=record.predicted_total_savings,
+            periodCount=record.period_count,
+            complete=record.complete,
+            finalizedAt=record.finalized_at.isoformat(),
+        )
+
+
+@dataclass
 class APIPeriodDeviation:
     """API representation of period-level deviation."""
 

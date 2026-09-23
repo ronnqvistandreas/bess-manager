@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import DailySavingsHistory from '../components/DailySavingsHistory';
 import { DetailedSavingsAnalysis } from '../components/DetailedSavingsAnalysis';
 import { SavingsOverview } from '../components/SavingsOverview';
 import { useSettings } from '../hooks/useSettings';
@@ -102,6 +103,8 @@ const SavingsPage: React.FC = () => {
       ) : (
         <DetailedSavingsAnalysis settings={mergedSettings} resolution={dataResolution} />
       )}
+
+      <DailySavingsHistory />
     </div>
   );
 };

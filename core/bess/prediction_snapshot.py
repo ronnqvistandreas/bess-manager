@@ -158,6 +158,10 @@ class PredictionSnapshotStore:
         Returns:
             list[PredictionSnapshot]: All snapshots, chronologically ordered
         """
+        return self.get_all_snapshots()
+
+    def get_all_snapshots(self) -> list[PredictionSnapshot]:
+        """Get all in-memory snapshots, chronologically ordered."""
         return sorted(self._snapshots, key=lambda s: s.snapshot_timestamp)
 
     def get_snapshot_at_period(self, period: int) -> PredictionSnapshot | None:

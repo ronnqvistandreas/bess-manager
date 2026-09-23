@@ -14,6 +14,7 @@ from api_conversion import (
 from api_dataclasses import (
     _ENTITY_ID_RE,
     APIConsumptionForecastComparison,
+    APIDailySavingsRecord,
     APIDashboardHourlyData,
     APIDashboardResponse,
     APIPredictionSnapshot,
@@ -2014,6 +2015,33 @@ async def get_historical_data_status():
 
     except Exception as e:
         logger.error(f"Error checking historical data status: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/savings/history")
+async def get_savings_history(days: int = Query(default=30, ge=0)):
+    """Get finalized daily savings history."""
+    from app import bess_controller
+
+    _require_configured_system(bess_controller)
+
+    try:
+        records = bess_controller.system.daily_savings_store.list_records(days)
+        currency = bess_controller.system.home_settings.currency
+
+        response = {
+            "currency": currency,
+            "records": [
+                APIDailySavingsRecord.from_internal(record).__dict__
+                for record in records
+            ],
+            "count": len(records),
+        }
+
+        return convert_keys_to_camel_case(response)
+
+    except Exception as e:
+        logger.error(f"Error fetching savings history: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

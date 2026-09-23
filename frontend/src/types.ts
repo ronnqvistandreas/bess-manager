@@ -282,4 +282,23 @@ export interface PlannedLoadEvent {
   solarMinKwh: number;    // suppress if solar forecast for window < this (kWh)
 }
 
+export interface DailySavingsRecord {
+  date: string;
+  gridOnlyCost: number;
+  solarOnlyCost: number;
+  optimizedCost: number;
+  totalSavings: number;
+  solarSavings: number;
+  batteryContribution: number;
+  predictedTotalSavings: number;
+  periodCount: number;
+  complete: boolean;
+  finalizedAt: string;
+}
+
+export interface SavingsHistoryResponse {
+  currency: string;
+  records: DailySavingsRecord[];
+  count: number;
+}
 
