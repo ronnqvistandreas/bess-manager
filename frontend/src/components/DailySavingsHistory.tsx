@@ -170,7 +170,11 @@ const DailySavingsHistory: React.FC = () => {
             <>
               <div style={{ width: '100%', height: '300px' }}>
                 <ResponsiveContainer>
-                  <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
+                  <BarChart
+                    data={chartData}
+                    stackOffset="sign"
+                    margin={{ top: 10, right: 10, left: 0, bottom: 30 }}
+                  >
                     <CartesianGrid
                       stroke={colors.gridLines}
                       strokeOpacity={isDarkMode ? 0.12 : 0.3}
