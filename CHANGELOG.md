@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- **GitHub Copilot AI Analyst provider** — use a fine-grained GitHub token with the `Copilot Requests` permission. Copilot's SDK runtime is downloaded on first use and cached in `/data`; available models, premium-request multipliers, and supported reasoning effort are shown in AI Analyst settings.
 - **`standbyLossKw` battery setting** — models inverter/BMS draw as an AC-side load included in measured home consumption while the pack is above the reserve floor. Solar covers it first; the pack is only debited when solar cannot. Default `0` (no change for existing installs). Used for SOE-aware DP consumption and floor-hold (`SOLAR_EXPORT`) at night/low solar.
 - **Solar load-support override** — when live PV production is at or above `solarPvMinWatts` (default 100 W) and total home load exceeds `solarDischargeLoadMultiplier` times the predicted consumption for the current 15-minute slot, the battery discharge rate is forced to 100% regardless of the optimizer's schedule. Falls back to `defaultHourly` as the baseline until the first prediction fetch completes. Designed for EV-charging or high-load events where stored solar should be used instead of importing from the grid. Discharge inhibit always takes priority. Both thresholds are configurable in Settings → Home. Degrades silently if the PV sensor or phase current sensors are unavailable.
 

@@ -2,7 +2,7 @@
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
@@ -26,7 +26,7 @@ class TurnResult:
 class LLMProvider(Protocol):
     """Async streaming LLM with tool-use support."""
 
-    async def stream_turn(
+    def stream_turn(
         self,
         messages: list[dict],
         system_prompt: Any,
@@ -42,3 +42,20 @@ class LLMProvider(Protocol):
     async def test_connection(self) -> tuple[bool, str]:
         """Perform a minimal live API call. Returns (ok, message)."""
         ...
+
+
+@runtime_checkable
+class ReplyLLMProvider(Protocol):
+    """Provider that manages an entire reply and its conversation state."""
+
+    def stream_reply(
+        self,
+        session_id: str,
+        message: str,
+        system_prompt: str,
+        context_update: str | None = None,
+    ) -> AsyncIterator[tuple[str, Any]]: ...
+
+    async def list_models(self) -> list[dict]: ...
+
+    async def test_connection(self) -> tuple[bool, str]: ...

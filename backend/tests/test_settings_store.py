@@ -545,6 +545,7 @@ class TestSchemaMigration:
                     "api_key": "sk-ant-old",
                     "model": "claude-sonnet-4-20250514",
                     "enabled": True,
+                    "copilot": {"github_token": "github_pat_test"},
                 }
             },
         )
@@ -556,3 +557,6 @@ class TestSchemaMigration:
         assert "model" not in ai
         assert ai["google"]["model"] == "gemini-3.8-flash"
         assert ai["google"]["thinking_level"] == "low"
+        assert ai["copilot"]["github_token"] == "github_pat_test"
+        assert ai["copilot"]["model"] == "auto"
+        assert ai["copilot"]["reasoning_effort"] == "low"

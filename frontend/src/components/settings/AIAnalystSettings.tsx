@@ -8,11 +8,25 @@ export interface AIAnalystProviderForm {
   thinkingLevel?: 'low' | 'high';
 }
 
+export interface CopilotModelOption {
+  id: string;
+  name: string;
+  billingMultiplier: number | null;
+  contextWindowTokens: number | null;
+  reasoningEfforts: string[];
+  defaultReasoningEffort: string | null;
+}
+
 export interface AIAnalystForm {
-  provider: 'anthropic' | 'google';
+  provider: 'anthropic' | 'google' | 'copilot';
   enabled: boolean;
   anthropic: AIAnalystProviderForm;
   google: AIAnalystProviderForm;
+  copilot: {
+    githubToken: string;
+    model: string;
+    reasoningEffort: string;
+  };
 }
 
 export const EMPTY_AI_ANALYST_FORM: AIAnalystForm = {
@@ -27,6 +41,11 @@ export const EMPTY_AI_ANALYST_FORM: AIAnalystForm = {
     model: 'gemini-3.8-flash',
     thinkingLevel: 'low',
   },
+  copilot: {
+    githubToken: '',
+    model: 'auto',
+    reasoningEffort: 'low',
+  },
 };
 
 interface Props {
@@ -37,6 +56,7 @@ interface Props {
 export function AIAnalystSettings({ form, onChange }: Props) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [copilotModels, setCopilotModels] = useState<CopilotModelOption[]>([]);
 
   const testConnection = async () => {
     setTesting(true);
@@ -44,6 +64,24 @@ export function AIAnalystSettings({ form, onChange }: Props) {
     try {
       const res = await api.post('/api/ai/chat/test', form);
       setTestResult({ ok: res.data.ok, message: res.data.message });
+      if (form.provider === 'copilot' && res.data.ok && res.data.models) {
+        const models = res.data.models as CopilotModelOption[];
+        setCopilotModels(models);
+        const selected = form.copilot.model;
+        const model = models.find(option => option.id === selected);
+        const defaultModel = selected === 'auto' ? res.data.defaultModel : selected;
+        const chosen = models.find(option => option.id === defaultModel);
+        onChange({
+          ...form,
+          copilot: {
+            ...form.copilot,
+            model: defaultModel,
+            reasoningEffort: model?.reasoningEfforts.includes(form.copilot.reasoningEffort)
+              ? form.copilot.reasoningEffort
+              : chosen?.defaultReasoningEffort ?? 'low',
+          },
+        });
+      }
     } catch {
       setTestResult({ ok: false, message: 'Could not reach backend.' });
     } finally {
@@ -51,13 +89,19 @@ export function AIAnalystSettings({ form, onChange }: Props) {
     }
   };
 
-  const providerLabel = form.provider === 'google' ? 'Google Gemini' : 'Claude';
+  const providerLabel = form.provider === 'google'
+    ? 'Google Gemini'
+    : form.provider === 'copilot' ? 'GitHub Copilot' : 'Claude';
+  const selectedCopilotModel = copilotModels.find(
+    model => model.id === form.copilot.model,
+  );
+  const reasoningEfforts = selectedCopilotModel?.reasoningEfforts ?? [];
 
   return (
     <div className="space-y-3">
       <SectionCard
         title="AI Analyst"
-        description="Connect to Claude or Google Gemini for in-app battery analysis. API keys are stored locally on your Home Assistant instance and never sent to the browser."
+        description="Connect to Claude, Google Gemini, or GitHub Copilot for in-app battery analysis. Credentials are stored locally on your Home Assistant instance."
       >
         <div className="space-y-4">
           <label className="block">
@@ -69,10 +113,99 @@ export function AIAnalystSettings({ form, onChange }: Props) {
             >
               <option value="anthropic">Claude (Anthropic)</option>
               <option value="google">Google Gemini</option>
+              <option value="copilot">GitHub Copilot</option>
             </select>
           </label>
 
           {toggle('Enable AI Analyst', form.enabled, v => onChange({ ...form, enabled: v }))}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="GitHub Copilot"
+        description="Use your Copilot subscription through the official GitHub Copilot SDK."
+      >
+        <div className="space-y-4">
+          <label className="block">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Fine-grained personal access token</span>
+            <input
+              type="password"
+              value={form.copilot.githubToken}
+              onChange={e => onChange({
+                ...form,
+                copilot: { ...form.copilot, githubToken: e.target.value },
+              })}
+              placeholder="github_pat_..."
+              autoComplete="new-password"
+              className="mt-1 block w-full rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              Create a fine-grained token with the <span className="font-mono">Copilot Requests</span> permission in{' '}
+              <a
+                href="https://github.com/settings/personal-access-tokens"
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
+                GitHub settings
+              </a>
+              . Classic <span className="font-mono">ghp_</span> tokens are not supported.
+            </p>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Model</span>
+            <select
+              value={form.copilot.model}
+              onChange={e => {
+                const model = copilotModels.find(option => option.id === e.target.value);
+                onChange({
+                  ...form,
+                  copilot: {
+                    ...form.copilot,
+                    model: e.target.value,
+                    reasoningEffort: model?.defaultReasoningEffort ?? 'low',
+                  },
+                });
+              }}
+              className="mt-1 block w-full rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="auto">Auto (used when no zero-cost model is available)</option>
+              {form.copilot.model !== 'auto' && !copilotModels.some(model => model.id === form.copilot.model) && (
+                <option value={form.copilot.model}>{form.copilot.model}</option>
+              )}
+              {copilotModels.map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.name} ({model.billingMultiplier === 0
+                    ? '0× premium requests'
+                    : model.billingMultiplier === null
+                      ? 'premium request cost unavailable'
+                      : `${model.billingMultiplier}× premium requests`})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              Use Test Connection to load the models available to your account. Premium-request usage depends on the selected model and your Copilot plan.
+            </p>
+          </label>
+
+          {reasoningEfforts.length > 0 && (
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Reasoning Effort</span>
+              <select
+                value={form.copilot.reasoningEffort}
+                onChange={e => onChange({
+                  ...form,
+                  copilot: { ...form.copilot, reasoningEffort: e.target.value },
+                })}
+                className="mt-1 block w-full rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {reasoningEfforts.map(effort => (
+                  <option key={effort} value={effort}>{effort}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       </SectionCard>
 

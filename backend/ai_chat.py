@@ -11,16 +11,22 @@ and list directories — giving it full access to its own code for deep analysis
 import fnmatch
 import json
 import logging
+import os
 import re
+import shutil
 import subprocess
+import tempfile
 import time
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from llm.config import resolve_provider_config
-from llm.factory import get_provider
+from llm.copilot_provider import CopilotProvider
+from llm.factory import Provider, get_provider
+from llm.protocol import ReplyLLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +142,13 @@ _CHARS_PER_TOKEN = 4
 
 # Maximum characters for the system context.
 _MAX_CONTEXT_CHARS = 600_000
+_COPILOT_SESSION_DIRECTORY = (
+    Path(tempfile.gettempdir()) / "bess-manager-copilot-session-state"
+)
+_COPILOT_RUNTIME_DIRECTORY = Path(
+    os.environ.get("COPILOT_CLI_EXTRACT_DIR", "/data/copilot-runtime")
+)
+_COPILOT_SESSION_STATE_CLEARED = False
 
 
 @dataclass
@@ -144,9 +157,11 @@ class ChatSession:
 
     session_id: str
     provider: str = "anthropic"
+    model: str = ""
     messages: list[dict] = field(default_factory=list)
     system_context: str = ""
     context_summary: str = ""
+    pending_context_update: str = ""
     created_at: float = field(default_factory=time.time)
     last_active: float = field(default_factory=time.time)
 
@@ -379,18 +394,25 @@ def _execute_tool(name: str, tool_input: dict) -> str:
 
 
 class AIAnalystService:
-    """Manages AI chat sessions and Claude API interactions."""
+    """Manages AI chat sessions across configured LLM providers."""
 
-    def __init__(self, settings_store) -> None:
+    def __init__(self, settings_store: Any) -> None:
+        global _COPILOT_SESSION_STATE_CLEARED
+        if not _COPILOT_SESSION_STATE_CLEARED:
+            if _COPILOT_SESSION_DIRECTORY.exists():
+                shutil.rmtree(_COPILOT_SESSION_DIRECTORY)
+            _COPILOT_SESSION_STATE_CLEARED = True
         self._settings_store = settings_store
         self._sessions: dict[str, ChatSession] = {}
         self._system_prompt_base: str = self._load_system_prompt()
+        self._copilot_provider: CopilotProvider | None = None
+        self._copilot_config_signature: tuple[str, str, str] | None = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Return whether the AI analyst is configured and which model is active."""
         cfg = resolve_provider_config(self._get_config())
         status = {
@@ -401,9 +423,11 @@ class AIAnalystService:
         }
         if cfg["provider"] == "google" and cfg.get("thinking_level"):
             status["thinkingLevel"] = cfg["thinking_level"]
+        if cfg["provider"] == "copilot" and cfg.get("reasoning_effort"):
+            status["reasoningEffort"] = cfg["reasoning_effort"]
         return status
 
-    def start_session(self, system_manager) -> dict:
+    async def start_session(self, system_manager: Any) -> dict[str, str]:
         """Create a new chat session with fresh system context.
 
         Args:
@@ -412,15 +436,26 @@ class AIAnalystService:
         Returns:
             Dict with sessionId and contextSummary.
         """
-        self._cleanup_expired()
+        await self._cleanup_expired()
 
         session_id = str(uuid.uuid4())
         context, summary = self._gather_context(system_manager)
         cfg = resolve_provider_config(self._get_config())
+        if cfg["provider"] == "copilot" and cfg["api_key"]:
+            provider = await self._get_copilot_provider(cfg)
+            ok, message = await provider.test_connection()
+            if not ok:
+                raise ValueError(message)
+            await provider.validate_context(
+                self._build_full_system_prompt(context, "copilot")
+            )
+        else:
+            await self._stop_copilot_provider()
 
         session = ChatSession(
             session_id=session_id,
             provider=cfg["provider"],
+            model=cfg["model"],
             system_context=context,
             context_summary=summary,
         )
@@ -445,6 +480,7 @@ class AIAnalystService:
         Yields:
             SSE-formatted strings: ``data: {...}\\n\\n``
         """
+        await self._cleanup_expired()
         session = self._sessions.get(session_id)
         if session is None:
             yield _sse_event("error", {"error": "Session not found or expired."})
@@ -453,6 +489,8 @@ class AIAnalystService:
         session.last_active = time.time()
 
         cfg = resolve_provider_config(self._get_config())
+        if cfg["provider"] != "copilot":
+            await self._stop_copilot_provider()
         if session.provider != cfg["provider"]:
             yield _sse_event(
                 "error",
@@ -464,29 +502,62 @@ class AIAnalystService:
             return
 
         # Add user message to history.
-        session.messages.append({"role": "user", "content": user_message})
-
-        # Trim conversation if too long.
-        self._trim_messages(session)
+        if cfg["provider"] != "copilot":
+            session.messages.append({"role": "user", "content": user_message})
+            self._trim_messages(session)
 
         if not cfg["api_key"]:
             yield _sse_event(
                 "error",
-                {"error": "API key not configured. Go to Settings > AI Analyst."},
+                {
+                    "error": (
+                        "GitHub token not configured. Go to Settings > AI Analyst."
+                        if cfg["provider"] == "copilot"
+                        else "API key not configured. Go to Settings > AI Analyst."
+                    )
+                },
             )
             return
 
         system_prompt = self._build_full_system_prompt(
             session.system_context, cfg["provider"]
         )
-        provider = get_provider(
-            cfg["provider"],
-            cfg["api_key"],
-            cfg["model"],
-            thinking_level=cfg.get("thinking_level"),
-        )
+        provider: Provider
+        if cfg["provider"] == "copilot":
+            if session.model != cfg["model"]:
+                yield _sse_event(
+                    "error",
+                    {
+                        "error": "provider_changed",
+                        "message": "AI settings changed. Please start a new session.",
+                    },
+                )
+                return
+            provider = await self._get_copilot_provider(cfg)
+        else:
+            provider = get_provider(
+                cfg["provider"],
+                cfg["api_key"],
+                cfg["model"],
+                thinking_level=cfg.get("thinking_level"),
+            )
 
         try:
+            if isinstance(provider, ReplyLLMProvider):
+                async for event_type, data in provider.stream_reply(
+                    session_id,
+                    user_message,
+                    system_prompt,
+                    context_update=session.pending_context_update or None,
+                ):
+                    if event_type == "text_delta":
+                        yield _sse_event(event_type, {"text": data})
+                    elif event_type == "tool_use":
+                        yield _sse_event(event_type, data)
+                session.pending_context_update = ""
+                yield _sse_event("done", {})
+                return
+
             final_text = ""
 
             for _iteration in range(_MAX_TOOL_ITERATIONS):
@@ -501,7 +572,9 @@ class AIAnalystService:
                         turn_result = data
 
                 if turn_result is None:
-                    yield _sse_event("error", {"error": "AI service returned no response."})
+                    yield _sse_event(
+                        "error", {"error": "AI service returned no response."}
+                    )
                     return
 
                 if not turn_result.tool_calls:
@@ -553,7 +626,7 @@ class AIAnalystService:
             logger.exception("Unexpected error in AI chat stream: %s", e)
             yield _sse_event("error", {"error": "An unexpected error occurred."})
 
-    async def test_connection(self, overrides: dict | None = None) -> dict:
+    async def test_connection(self, overrides: dict | None = None) -> dict[str, Any]:
         """Test connectivity for a provider using saved settings and optional overrides."""
         section = self._get_config()
         override_data = dict(overrides) if overrides else {}
@@ -562,9 +635,27 @@ class AIAnalystService:
             section, provider=provider_override, overrides=override_data
         )
         if not cfg["api_key"]:
-            return {"ok": False, "message": "API key not configured."}
+            return {
+                "ok": False,
+                "message": (
+                    "GitHub token not configured."
+                    if cfg["provider"] == "copilot"
+                    else "API key not configured."
+                ),
+            }
 
-        provider = get_provider(
+        if cfg["provider"] == "copilot":
+            copilot_provider = await self._get_copilot_provider(cfg)
+            ok, message = await copilot_provider.test_connection()
+            result = {"ok": ok, "message": message}
+            if ok:
+                models = await copilot_provider.list_models()
+                result["models"] = models
+                result["defaultModel"] = copilot_provider.default_model(models)
+            return result
+
+        await self._stop_copilot_provider()
+        provider: Provider = get_provider(
             cfg["provider"],
             cfg["api_key"],
             cfg["model"],
@@ -573,7 +664,7 @@ class AIAnalystService:
         ok, message = await provider.test_connection()
         return {"ok": ok, "message": message}
 
-    def refresh_context(self, session_id: str, system_manager) -> dict:
+    def refresh_context(self, session_id: str, system_manager: Any) -> dict[str, str]:
         """Re-gather system context for an existing session.
 
         Args:
@@ -593,6 +684,7 @@ class AIAnalystService:
         context, summary = self._gather_context(system_manager)
         session.system_context = context
         session.context_summary = summary
+        session.pending_context_update = context
         session.last_active = time.time()
         logger.info("AI chat context refreshed for session %s", session_id)
         return {"contextSummary": summary}
@@ -601,9 +693,12 @@ class AIAnalystService:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _get_config(self) -> dict:
+    def _get_config(self) -> dict[str, Any]:
         """Read the ai_analyst settings section."""
-        return self._settings_store.get_section("ai_analyst")
+        section = self._settings_store.get_section("ai_analyst")
+        if not isinstance(section, dict):
+            raise TypeError("AI Analyst settings must be an object.")
+        return section
 
     def _load_system_prompt(self) -> str:
         """Load the bess-knowledge.md domain knowledge file."""
@@ -620,7 +715,9 @@ class AIAnalystService:
         stripped = re.sub(r"\A---\n.*?\n---\n*", "", raw, count=1, flags=re.DOTALL)
         return stripped.strip()
 
-    def _build_full_system_prompt(self, context: str, provider: str = "anthropic"):
+    def _build_full_system_prompt(
+        self, context: str, provider: str = "anthropic"
+    ) -> Any:
         """Combine preamble + domain knowledge + live context.
 
         Returns Anthropic content blocks (with cache_control) or a plain
@@ -631,7 +728,7 @@ class AIAnalystService:
             "\n\n---\n\n# Current System State\n\n" + context if context else ""
         )
 
-        if provider == "google":
+        if provider in ("google", "copilot"):
             return static + context_block
 
         blocks = [
@@ -650,7 +747,7 @@ class AIAnalystService:
             )
         return blocks
 
-    def _gather_context(self, system_manager) -> tuple[str, str]:
+    def _gather_context(self, system_manager: Any) -> tuple[str, str]:
         """Build a token-efficient context from the debug export.
 
         The full DebugReportFormatter output is ~200K+ tokens (includes raw
@@ -895,7 +992,7 @@ class AIAnalystService:
         if len(session.messages) > max_messages:
             session.messages = session.messages[-max_messages:]
 
-    def _cleanup_expired(self) -> None:
+    async def _cleanup_expired(self) -> None:
         """Remove sessions that have been inactive beyond the TTL."""
         now = time.time()
         expired = [
@@ -905,7 +1002,46 @@ class AIAnalystService:
         ]
         for sid in expired:
             del self._sessions[sid]
+            if self._copilot_provider is not None:
+                await self._copilot_provider.delete_session(sid)
             logger.info("AI chat session expired: %s", sid)
+
+    async def _get_copilot_provider(self, cfg: dict) -> CopilotProvider:
+        signature = (cfg["api_key"], cfg["model"], cfg["reasoning_effort"])
+        if (
+            self._copilot_provider is not None
+            and self._copilot_config_signature != signature
+        ):
+            await self._stop_copilot_provider()
+        if self._copilot_provider is None:
+            provider = get_provider(
+                "copilot",
+                cfg["api_key"],
+                cfg["model"],
+                reasoning_effort=cfg["reasoning_effort"],
+                session_directory=_COPILOT_SESSION_DIRECTORY,
+                runtime_directory=_COPILOT_RUNTIME_DIRECTORY,
+                tool_executor=_execute_tool,
+            )
+            if not isinstance(provider, CopilotProvider):
+                raise TypeError(
+                    "Copilot provider factory returned an invalid provider."
+                )
+            self._copilot_provider = provider
+            self._copilot_config_signature = signature
+        return self._copilot_provider
+
+    async def _stop_copilot_provider(self) -> None:
+        if self._copilot_provider is not None:
+            await self._copilot_provider.close()
+            self._copilot_provider = None
+            self._copilot_config_signature = None
+
+    async def close(self) -> None:
+        """Stop the SDK runtime and remove its temporary session state."""
+        await self._stop_copilot_provider()
+        if _COPILOT_SESSION_DIRECTORY.exists():
+            shutil.rmtree(_COPILOT_SESSION_DIRECTORY)
 
 
 def _sse_event(event_type: str, data: dict) -> str:

@@ -230,6 +230,11 @@ const SettingsPage: React.FC = () => {
           model: ai_s.google?.model ?? 'gemini-3.8-flash',
           thinkingLevel: ai_s.google?.thinkingLevel ?? 'low',
         },
+        copilot: {
+          githubToken: ai_s.copilot?.githubToken ?? '',
+          model: ai_s.copilot?.model ?? 'auto',
+          reasoningEffort: ai_s.copilot?.reasoningEffort ?? 'low',
+        },
       };
       setAiForm(ai);
       savedAi.current = JSON.stringify(ai);

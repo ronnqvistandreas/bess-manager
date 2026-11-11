@@ -51,6 +51,19 @@ class TestResolveProviderConfig:
         assert cfg["model"] == DEFAULT_GOOGLE_MODEL
         assert cfg["thinking_level"] == DEFAULT_GOOGLE_THINKING_LEVEL
 
+    def test_copilot_defaults_and_overrides(self):
+        cfg = resolve_provider_config(
+            {"provider": "copilot", "copilot": {"github_token": "ghp-test"}},
+            overrides={"copilot": {"model": "gpt-5", "reasoning_effort": "high"}},
+        )
+        assert cfg == {
+            "provider": "copilot",
+            "enabled": True,
+            "api_key": "ghp-test",
+            "model": "gpt-5",
+            "reasoning_effort": "high",
+        }
+
     def test_overrides_merge(self):
         section = {
             "provider": "anthropic",
@@ -79,3 +92,18 @@ class TestProviderFactory:
         from llm.google_provider import GoogleProvider
 
         assert isinstance(provider, GoogleProvider)
+
+    def test_returns_copilot_provider(self, tmp_path):
+        from llm.copilot_provider import CopilotProvider
+
+        provider = get_provider(
+            "copilot",
+            "github_pat_test",
+            "auto",
+            reasoning_effort="low",
+            session_directory=tmp_path / "sessions",
+            runtime_directory=tmp_path / "runtime",
+            tool_executor=lambda name, args: "",
+        )
+
+        assert isinstance(provider, CopilotProvider)

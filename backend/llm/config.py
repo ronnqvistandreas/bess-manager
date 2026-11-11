@@ -4,6 +4,8 @@ DEFAULT_PROVIDER = "anthropic"
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_GOOGLE_MODEL = "gemini-3.8-flash"
 DEFAULT_GOOGLE_THINKING_LEVEL = "low"
+DEFAULT_COPILOT_MODEL = "auto"
+DEFAULT_COPILOT_REASONING_EFFORT = "low"
 
 
 def resolve_provider_config(
@@ -21,11 +23,14 @@ def resolve_provider_config(
 
     anthropic = dict(section.get("anthropic", {}))
     google = dict(section.get("google", {}))
+    copilot = dict(section.get("copilot", {}))
 
     if "anthropic" in overrides:
         anthropic.update(overrides["anthropic"])
     if "google" in overrides:
         google.update(overrides["google"])
+    if "copilot" in overrides:
+        copilot.update(overrides["copilot"])
 
     enabled = section.get("enabled", True)
     if "enabled" in overrides:
@@ -37,7 +42,20 @@ def resolve_provider_config(
             "enabled": enabled,
             "api_key": google.get("api_key", ""),
             "model": google.get("model", DEFAULT_GOOGLE_MODEL),
-            "thinking_level": google.get("thinking_level", DEFAULT_GOOGLE_THINKING_LEVEL),
+            "thinking_level": google.get(
+                "thinking_level", DEFAULT_GOOGLE_THINKING_LEVEL
+            ),
+        }
+
+    if active_provider == "copilot":
+        return {
+            "provider": "copilot",
+            "enabled": enabled,
+            "api_key": copilot.get("github_token", ""),
+            "model": copilot.get("model", DEFAULT_COPILOT_MODEL),
+            "reasoning_effort": copilot.get(
+                "reasoning_effort", DEFAULT_COPILOT_REASONING_EFFORT
+            ),
         }
 
     return {

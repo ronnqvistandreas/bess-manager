@@ -8,7 +8,7 @@ session expiry, SSE formatting, system prompt loading, and tool execution
 import asyncio
 import json
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ai_chat import (
@@ -138,7 +138,7 @@ class TestStartSession:
     def test_returns_session_id(self):
         service = _make_service()
         with patch.object(service, "_gather_context", return_value=("ctx", "summary")):
-            result = service.start_session(MagicMock())
+            result = asyncio.run(service.start_session(MagicMock()))
         assert "sessionId" in result
         assert "contextSummary" in result
         assert result["contextSummary"] == "summary"
@@ -146,7 +146,7 @@ class TestStartSession:
     def test_session_stored(self):
         service = _make_service()
         with patch.object(service, "_gather_context", return_value=("ctx", "summary")):
-            result = service.start_session(MagicMock())
+            result = asyncio.run(service.start_session(MagicMock()))
         assert result["sessionId"] in service._sessions
 
 
@@ -156,7 +156,7 @@ class TestRefreshContext:
         with patch.object(
             service, "_gather_context", return_value=("ctx1", "summary1")
         ):
-            result = service.start_session(MagicMock())
+            result = asyncio.run(service.start_session(MagicMock()))
         sid = result["sessionId"]
 
         with patch.object(
@@ -165,6 +165,7 @@ class TestRefreshContext:
             refresh = service.refresh_context(sid, MagicMock())
         assert refresh["contextSummary"] == "new summary"
         assert service._sessions[sid].system_context == "ctx2"
+        assert service._sessions[sid].pending_context_update == "ctx2"
 
     def test_missing_session_raises(self):
         service = _make_service()
@@ -184,7 +185,7 @@ class TestSessionExpiry:
         old_session = ChatSession(session_id="old", last_active=time.time() - 99999)
         service._sessions["old"] = old_session
 
-        service._cleanup_expired()
+        asyncio.run(service._cleanup_expired())
         assert "old" not in service._sessions
 
     def test_active_sessions_kept(self):
@@ -192,8 +193,23 @@ class TestSessionExpiry:
         active = ChatSession(session_id="active", last_active=time.time())
         service._sessions["active"] = active
 
-        service._cleanup_expired()
+        asyncio.run(service._cleanup_expired())
         assert "active" in service._sessions
+
+    def test_expired_sessions_delete_copilot_history(self):
+        service = _make_service()
+        provider = MagicMock()
+        provider.delete_session = AsyncMock()
+        service._copilot_provider = provider
+        service._sessions["old"] = ChatSession(
+            session_id="old",
+            provider="copilot",
+            last_active=time.time() - 99999,
+        )
+
+        asyncio.run(service._cleanup_expired())
+
+        provider.delete_session.assert_awaited_once_with("old")
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +290,61 @@ class TestStreamResponse:
         payload = json.loads(events[0][len("data: ") :].strip())
         assert payload["type"] == "error"
         assert payload["error"] == "provider_changed"
+
+    def test_copilot_streams_sdk_reply_without_local_history(self):
+        service = _make_service(
+            {
+                "provider": "copilot",
+                "copilot": {
+                    "github_token": "github_pat_test",
+                    "model": "auto",
+                    "reasoning_effort": "low",
+                },
+            }
+        )
+        session = ChatSession(
+            session_id="s1",
+            provider="copilot",
+            model="auto",
+            system_context="context",
+            pending_context_update="refreshed context",
+        )
+        service._sessions["s1"] = session
+
+        class FakeCopilotProvider:
+            async def stream_reply(
+                self, session_id, message, system_prompt, context_update=None
+            ):
+                assert session_id == "s1"
+                assert message == "hello"
+                assert context_update == "refreshed context"
+                yield "text_delta", "Hi"
+                yield "tool_use", {"tool": "read_file", "input": {"path": "x"}}
+                yield "turn_complete", None
+
+            async def list_models(self):
+                return []
+
+            async def test_connection(self):
+                return True, "ok"
+
+        service._copilot_provider = FakeCopilotProvider()
+        service._copilot_config_signature = (
+            "github_pat_test",
+            "auto",
+            "low",
+        )
+
+        events = self._collect(service.stream_response("s1", "hello"))
+        payloads = [json.loads(event[len("data: ") :].strip()) for event in events]
+
+        assert [payload["type"] for payload in payloads] == [
+            "text_delta",
+            "tool_use",
+            "done",
+        ]
+        assert session.messages == []
+        assert session.pending_context_update == ""
 
 
 # ---------------------------------------------------------------------------
@@ -558,18 +629,29 @@ class TestTestConnection:
         service = _make_service(
             {
                 "provider": "anthropic",
-                "anthropic": {"api_key": "sk-ant-test", "model": "claude-sonnet-4-20250514"},
+                "anthropic": {
+                    "api_key": "sk-ant-test",
+                    "model": "claude-sonnet-4-20250514",
+                },
             }
         )
-        with patch("llm.anthropic_provider.AnthropicProvider.test_connection") as mock_test:
-            mock_test.return_value = (True, "Claude connection OK — model: claude-sonnet-4-20250514")
+        with patch(
+            "llm.anthropic_provider.AnthropicProvider.test_connection"
+        ) as mock_test:
+            mock_test.return_value = (
+                True,
+                "Claude connection OK — model: claude-sonnet-4-20250514",
+            )
             result = asyncio.run(service.test_connection())
         assert result["ok"] is True
 
     def test_google_with_overrides(self):
         service = _make_service({"provider": "anthropic"})
         with patch("llm.google_provider.GoogleProvider.test_connection") as mock_test:
-            mock_test.return_value = (True, "Gemini connection OK — model: gemini-3.8-flash")
+            mock_test.return_value = (
+                True,
+                "Gemini connection OK — model: gemini-3.8-flash",
+            )
             result = asyncio.run(
                 service.test_connection(
                     {
@@ -580,6 +662,39 @@ class TestTestConnection:
             )
         assert result["ok"] is True
         assert "Gemini" in result["message"]
+
+    def test_copilot_returns_model_choices(self):
+        service = _make_service()
+        provider = MagicMock()
+        provider.test_connection = AsyncMock(return_value=(True, "Copilot OK"))
+        models = [{"id": "included-model", "billingMultiplier": 0.0}]
+        provider.list_models = AsyncMock(return_value=models)
+        provider.default_model.return_value = "included-model"
+
+        async def get_provider(cfg):
+            assert cfg["provider"] == "copilot"
+            return provider
+
+        service._get_copilot_provider = get_provider
+        result = asyncio.run(
+            service.test_connection(
+                {
+                    "provider": "copilot",
+                    "copilot": {
+                        "github_token": "github_pat_test",
+                        "model": "auto",
+                        "reasoning_effort": "low",
+                    },
+                }
+            )
+        )
+
+        assert result == {
+            "ok": True,
+            "message": "Copilot OK",
+            "models": models,
+            "defaultModel": "included-model",
+        }
 
 
 # ---------------------------------------------------------------------------

@@ -61,7 +61,12 @@ export function useAIChat() {
       setMessages([]);
       return res.data.sessionId as string;
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to start session';
+      const responseDetail = (
+        err as { response?: { data?: { detail?: unknown } } }
+      )?.response?.data?.detail;
+      const msg = typeof responseDetail === 'string'
+        ? responseDetail
+        : err instanceof Error ? err.message : 'Failed to start session';
       setError(msg);
       return null;
     }

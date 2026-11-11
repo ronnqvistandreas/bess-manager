@@ -45,9 +45,12 @@ async def lifespan(_app: FastAPI):
             routes.append(f"{path} - Mounted route or no methods")
     logger.info(f"Registered routes: {routes}")
 
-    yield
+    try:
+        yield
+    finally:
+        from api import shutdown_ai_service
 
-    # Shutdown (if needed in the future)
+        await shutdown_ai_service()
 
 
 # Create FastAPI app with correct root_path

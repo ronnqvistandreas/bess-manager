@@ -624,6 +624,21 @@ class SettingsStore:
                     google["thinking_level"] = "low"
                     changed = True
 
+            copilot = ai_analyst.get("copilot")
+            if not isinstance(copilot, dict):
+                ai_analyst["copilot"] = {
+                    "model": "auto",
+                    "reasoning_effort": "low",
+                }
+                changed = True
+            else:
+                if "model" not in copilot:
+                    copilot["model"] = "auto"
+                    changed = True
+                if "reasoning_effort" not in copilot:
+                    copilot["reasoning_effort"] = "low"
+                    changed = True
+
             if changed:
                 self.data["ai_analyst"] = ai_analyst
 

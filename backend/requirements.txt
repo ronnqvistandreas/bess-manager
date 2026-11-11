@@ -16,3 +16,4 @@ numpy
 pandas
 anthropic>=0.40.0
 google-genai>=1.0.0
+github-copilot-sdk==1.0.31

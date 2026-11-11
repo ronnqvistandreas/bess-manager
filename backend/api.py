@@ -2687,7 +2687,10 @@ async def ai_chat_start():
             detail="AI Analyst not configured. Add an API key in Settings.",
         )
 
-    result = service.start_session(ctrl.system)
+    try:
+        result = await service.start_session(ctrl.system)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return result
 
 
@@ -2721,6 +2724,15 @@ async def ai_chat_stream(body: dict):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+async def shutdown_ai_service() -> None:
+    """Release optional AI providers during application shutdown."""
+    from app import bess_controller
+
+    service = vars(bess_controller).get("_ai_analyst_service")
+    if service is not None:
+        await service.close()
 
 
 @router.post("/api/ai/chat/refresh")

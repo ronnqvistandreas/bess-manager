@@ -1,6 +1,8 @@
 """Shared tool definitions for AI Analyst providers."""
 
-TOOLS = [
+from typing import Any
+
+TOOLS: list[dict[str, Any]] = [
     {
         "name": "read_file",
         "description": (

@@ -67,7 +67,14 @@ All other configuration is done in the **Settings** page:
 - **Pricing** — Energy provider (Nordpool/Octopus), price area, VAT, markup, additional costs
 - **Battery** — Capacity, power limits, SOC range, cycle cost, min action profit threshold
 - **Sensors** — All sensor entity IDs grouped by integration, with live health status per sensor
+- **AI Analyst** — Optional Claude, Google Gemini, or GitHub Copilot provider configuration
 - **Health** — Full component health check with refresh and debug export
+
+### GitHub Copilot AI Analyst
+
+Select **GitHub Copilot** under **Settings → AI Analyst** to use an existing GitHub Copilot subscription through the official Copilot SDK. Create a fine-grained personal access token in [GitHub settings](https://github.com/settings/personal-access-tokens) and grant it the **Copilot Requests** permission. Paste the token into the AI Analyst settings and use **Test Connection** to verify access and load the models available to your account. Classic `ghp_` tokens are not supported.
+
+The runtime is downloaded and SHA256-verified the first time you test the connection or start a Copilot chat. The download is approximately 136 MB and is stored in `/data` so it can be reused after add-on updates. Choose a model with a `0× premium requests` multiplier to avoid premium-request usage where one is available; otherwise the model selector defaults to **Auto**. Copilot usage and model availability are governed by your GitHub Copilot plan.
 
 ### Required Sensors
 
