@@ -76,7 +76,7 @@ class CopilotProvider:
         models = await self.list_models()
         selected = [model for model in models if model["id"] == self._model]
         if self._model == "auto":
-            selected = models
+            selected = [model for model in models if model["id"] != "auto"]
         if not selected:
             raise ValueError(f"GitHub Copilot model '{self._model}' is unavailable.")
 

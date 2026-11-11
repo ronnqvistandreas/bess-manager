@@ -15,7 +15,7 @@ from llm.copilot_provider import CopilotProvider
 def _model(
     model_id: str,
     multiplier: float | None,
-    prompt_tokens: int,
+    prompt_tokens: int | None,
     reasoning_efforts: list[str] | None = None,
 ):
     return SimpleNamespace(
@@ -23,7 +23,10 @@ def _model(
         name=model_id.upper(),
         billing=SimpleNamespace(multiplier=multiplier),
         capabilities=SimpleNamespace(
-            limits=SimpleNamespace(max_prompt_tokens=prompt_tokens),
+            limits=SimpleNamespace(
+                max_prompt_tokens=prompt_tokens,
+                max_context_window_tokens=None,
+            ),
         ),
         supported_reasoning_efforts=reasoning_efforts,
         default_reasoning_effort="low" if reasoning_efforts else None,
@@ -115,6 +118,32 @@ def test_context_limit_is_checked_before_session_creation(tmp_path):
         raise AssertionError("Oversized Copilot context must be rejected.")
 
     client.create_session.assert_not_called()
+
+
+def test_auto_context_limit_uses_concrete_model_limits(tmp_path):
+    client = MagicMock()
+    client.start = AsyncMock()
+    client.list_models = AsyncMock(
+        return_value=[
+            _model("auto", None, None),
+            _model("small-model", 0.0, 100),
+            _model("large-model", 1.0, 200),
+        ]
+    )
+    provider = CopilotProvider(
+        api_key="github_pat_test",
+        model="auto",
+        reasoning_effort=None,
+        session_directory=tmp_path / "sessions",
+        runtime_directory=tmp_path / "runtime",
+        tool_executor=MagicMock(),
+        client_factory=MagicMock(return_value=client),
+    )
+
+    with pytest.raises(ValueError, match="prompt limit") as error:
+        asyncio.run(provider.validate_context("x" * 404))
+
+    assert "100 token limit" in str(error.value)
 
 
 def test_stream_reply_uses_only_read_only_tools_and_streams_deltas(tmp_path):
